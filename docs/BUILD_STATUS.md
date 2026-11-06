@@ -22,8 +22,8 @@
 | **Phase 9** | CoinDCX Public Validation & Friction Engine | **COMPLETE** | Drift Gate & 0.1354% GST Fee Model & Tests Pass (5/5) |
 | **Phase 10**| Backtest & Ablation Framework | **COMPLETE** | 4-Part Cost Model, Intrabar Ambiguity SL-First, Walk-Forward, Ablation & Tests Pass (4/4) |
 | **Phase 11**| Chaos, Replay & Resource Stress Testing | **COMPLETE** | Watchdog Halt, Clock Desync Veto, Replay Determinism, Ringbuffer RSS < 220MB & Tests Pass (4/4) |
-| **Phase 12**| Shadow-Mode Implementation & Readiness | **IN PROGRESS** | Shadow Journal Logging Verified |
-| **Phase 13**| Manual Paper-Validation Implementation | **PENDING** | `/fill` Parsing & Outcome Tracker |
+| **Phase 12**| Shadow-Mode Implementation & Readiness | **COMPLETE** | Isolated Shadow Tables, 0 Egress Invariant, 8-Week Soak Gate & Tests Pass (2/2) |
+| **Phase 13**| Manual Paper-Validation Implementation | **IN PROGRESS** | `/fill` Parsing & Outcome Tracker |
 | **Phase 14**| Deployment Package & Documentation | **PENDING** | systemd Unit, Ops Guide, Push Report |
 
 ---

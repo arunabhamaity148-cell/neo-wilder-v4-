@@ -110,6 +110,22 @@ class DatabaseStore:
                         event_loop_lag_ms REAL NOT NULL
                     );
                 """)
+
+                # Shadow Mode Signals table
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS shadow_signals (
+                        shadow_id TEXT PRIMARY KEY,
+                        created_at_utc TEXT NOT NULL,
+                        symbol TEXT NOT NULL,
+                        direction TEXT NOT NULL,
+                        strategy_id TEXT NOT NULL,
+                        score_0_100 INTEGER NOT NULL,
+                        veto_status TEXT NOT NULL,
+                        active_edge_ids TEXT NOT NULL,
+                        shadow_edge_ids TEXT NOT NULL,
+                        payload_json TEXT NOT NULL
+                    );
+                """)
         finally:
             conn.close()
 
@@ -220,6 +236,42 @@ class DatabaseStore:
             (
                 "INSERT INTO health_metrics VALUES (?, ?, ?, ?);",
                 (timestamp_ms, rss_mb, skew_ms, loop_lag_ms),
+            )
+        )
+
+    async def record_shadow_signal(
+        self,
+        shadow_id: str,
+        created_at_utc: str,
+        symbol: str,
+        direction: str,
+        strategy_id: str,
+        score_0_100: int,
+        veto_status: str,
+        active_edge_ids: str,
+        shadow_edge_ids: str,
+        payload_json: str,
+    ):
+        """Queue shadow signal write."""
+        await self._write_queue.put(
+            (
+                """
+                INSERT OR REPLACE INTO shadow_signals VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                );
+                """,
+                (
+                    shadow_id,
+                    created_at_utc,
+                    symbol,
+                    direction,
+                    strategy_id,
+                    score_0_100,
+                    veto_status,
+                    active_edge_ids,
+                    shadow_edge_ids,
+                    payload_json,
+                ),
             )
         )
 
