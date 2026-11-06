@@ -338,8 +338,8 @@ class BacktestEngine:
 
         net_avg_r = float(np.mean(realized_rs))
 
-        # Drawdown calculation
-        cumulative_r = np.cumsum(realized_rs)
+        # Drawdown calculation (peak-to-trough from initial equity 0.0)
+        cumulative_r = np.insert(np.cumsum(realized_rs), 0, 0.0)
         running_max = np.maximum.accumulate(cumulative_r)
         drawdowns = running_max - cumulative_r
         max_dd_r = float(np.max(drawdowns)) if len(drawdowns) > 0 else 0.0

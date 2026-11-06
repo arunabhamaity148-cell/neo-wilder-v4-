@@ -23,8 +23,8 @@
 | **Phase 10**| Backtest & Ablation Framework | **COMPLETE** | 4-Part Cost Model, Intrabar Ambiguity SL-First, Walk-Forward, Ablation & Tests Pass (4/4) |
 | **Phase 11**| Chaos, Replay & Resource Stress Testing | **COMPLETE** | Watchdog Halt, Clock Desync Veto, Replay Determinism, Ringbuffer RSS < 220MB & Tests Pass (4/4) |
 | **Phase 12**| Shadow-Mode Implementation & Readiness | **COMPLETE** | Isolated Shadow Tables, 0 Egress Invariant, 8-Week Soak Gate & Tests Pass (2/2) |
-| **Phase 13**| Manual Paper-Validation Implementation | **IN PROGRESS** | `/fill` Parsing & Outcome Tracker |
-| **Phase 14**| Deployment Package & Documentation | **PENDING** | systemd Unit, Ops Guide, Push Report |
+| **Phase 13**| Manual Paper-Validation Implementation | **COMPLETE** | /fill Database Integration, 5 Empirical Gates, Honest 'PENDING' Status & Tests Pass (4/4) |
+| **Phase 14**| Deployment Package & Documentation | **IN PROGRESS** | systemd Unit, Ops Guide, Push Report |
 
 ---
 

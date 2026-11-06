@@ -336,3 +336,31 @@ class DatabaseStore:
             return candles
         finally:
             conn.close()
+
+    def fetch_resolved_paper_trades(self) -> List[Dict[str, Any]]:
+        """Fetch all trades that have both an operator /fill and an outcome resolution."""
+        conn = sqlite3.connect(str(self.db_path), timeout=5.0)
+        try:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT
+                    o.signal_id,
+                    o.resolved_status,
+                    o.exit_price,
+                    o.realized_r,
+                    o.resolution_time_utc,
+                    f.fill_price,
+                    f.fill_size,
+                    f.timestamp_utc as fill_time_utc
+                FROM outcomes o
+                INNER JOIN fills f ON o.signal_id = f.signal_id
+                WHERE o.resolved_status IN ('TP1_HIT', 'SL_HIT', 'EXPIRED')
+                ORDER BY o.resolution_time_utc ASC;
+                """
+            )
+            rows = cursor.fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            conn.close()
