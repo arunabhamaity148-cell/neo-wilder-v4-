@@ -1,0 +1,14 @@
+version: "4.0.0"
+generated: "2026-11-06"
+calibration_status: "NOT_CALIBRATED"
+active_artefact_path: null
+training_window: null
+min_resolved_trades_required: 300
+
+thresholds:
+  publish_threshold: 85.0
+  min_net_rr: 1.50
+  max_drift_pct: 0.35
+  max_spread_bps_major: 12.0
+  max_spread_bps_alt: 25.0
+  late_entry_max_progress: 0.35

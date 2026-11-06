@@ -1,0 +1,66 @@
+version: "4.0.0"
+
+symbols:
+  - binance_symbol: "BTCUSDT"
+    coindcx_pair: "B-BTC_USDT"
+    tier: "MAJOR"
+    tick_size: 0.10
+    step_size: 0.001
+    min_notional_usd: 5.0
+    intended_clip_usd: 1000.0
+
+  - binance_symbol: "ETHUSDT"
+    coindcx_pair: "B-ETH_USDT"
+    tier: "MAJOR"
+    tick_size: 0.01
+    step_size: 0.01
+    min_notional_usd: 5.0
+    intended_clip_usd: 1000.0
+
+  - binance_symbol: "SOLUSDT"
+    coindcx_pair: "B-SOL_USDT"
+    tier: "ALT"
+    tick_size: 0.01
+    step_size: 0.1
+    min_notional_usd: 5.0
+    intended_clip_usd: 500.0
+
+  - binance_symbol: "BNBUSDT"
+    coindcx_pair: "B-BNB_USDT"
+    tier: "ALT"
+    tick_size: 0.01
+    step_size: 0.01
+    min_notional_usd: 5.0
+    intended_clip_usd: 500.0
+
+  - binance_symbol: "ADAUSDT"
+    coindcx_pair: "B-ADA_USDT"
+    tier: "ALT"
+    tick_size: 0.0001
+    step_size: 1.0
+    min_notional_usd: 5.0
+    intended_clip_usd: 250.0
+
+  - binance_symbol: "XRPUSDT"
+    coindcx_pair: "B-XRP_USDT"
+    tier: "ALT"
+    tick_size: 0.0001
+    step_size: 1.0
+    min_notional_usd: 5.0
+    intended_clip_usd: 250.0
+
+  - binance_symbol: "DOGEUSDT"
+    coindcx_pair: "B-DOGE_USDT"
+    tier: "ALT"
+    tick_size: 0.00001
+    step_size: 10.0
+    min_notional_usd: 5.0
+    intended_clip_usd: 250.0
+
+  - binance_symbol: "AVAXUSDT"
+    coindcx_pair: "B-AVAX_USDT"
+    tier: "ALT"
+    tick_size: 0.01
+    step_size: 0.1
+    min_notional_usd: 5.0
+    intended_clip_usd: 250.0

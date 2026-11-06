@@ -1,0 +1,67 @@
+version: "4.0.0"
+generated: "2026-11-06"
+processing_order:
+  - data_integrity            # V-H01..V-H04
+  - infrastructure_health     # V-H05..V-H11
+  - market_safety             # V-H12..V-H14
+  - event_and_derivatives_risk # V-H15..V-H18, V-H33
+  - execution_validation      # V-H31, V-H32
+  - risk_geometry             # V-H19..V-H23
+  - exposure_and_exhaustion   # V-H26..V-H30
+  - dedupe_and_cooldown       # V-H24, V-H25, V-H34
+  - soft_modifiers            # V-S01..V-S15
+  - final_approval
+override_policy_default: "NONE - hard veto can never be overridden by score, probability, config or operator flag"
+
+hard_vetoes:
+  - {id: V-H01, reason: DATA_STALE, severity: CRITICAL, cond: "last closed bar older than 2*timeframe + 30s"}
+  - {id: V-H02, reason: DATA_GAP, severity: CRITICAL, cond: ">=1 missing bar in last 20 bars"}
+  - {id: V-H03, reason: CANDLE_TS_INVALID, severity: CRITICAL, cond: "non monotonic or close_time <= open_time or close <= 0"}
+  - {id: V-H04, reason: DUPLICATE_CANDLE, severity: CRITICAL, cond: "same open_time processed twice"}
+  - {id: V-H05, reason: WS_DISCONNECTED, severity: CRITICAL, cond: "critical stream down > 5s"}
+  - {id: V-H06, reason: ORDERBOOK_STALE, severity: HIGH, cond: "depth older than 3s or sequence break"}
+  - {id: V-H07, reason: CLOCK_DESYNC, severity: HIGH, cond: "abs(local - serverTime) > 1000ms"}
+  - {id: V-H08, reason: MEMORY_EMERGENCY, severity: CRITICAL, cond: "RSS > 300MB or MemAvailable < 120MB"}
+  - {id: V-H09, reason: KILL_SWITCH, severity: CRITICAL, cond: "operator flag or degraded ladder"}
+  - {id: V-H10, reason: WATCHDOG_FAILURE, severity: CRITICAL, cond: "heartbeat missed 3 intervals"}
+  - {id: V-H11, reason: CRITICAL_SOURCE_DOWN, severity: HIGH, cond: "funding or OI unavailable > 10min"}
+  - {id: V-H12, reason: ABNORMAL_SPREAD, severity: HIGH, cond: "spread_bps > 12 major / 25 alt or > 2.5x 1h median"}
+  - {id: V-H13, reason: INSUFFICIENT_LIQUIDITY, severity: HIGH, cond: "top10 notional depth < 20x clip"}
+  - {id: V-H14, reason: EXTREME_GAP, severity: HIGH, cond: "abs(open-prev_close)/prev_close > 3%"}
+  - {id: V-H15, reason: NEWS_WINDOW_ACTIVE, severity: HIGH, cond: "P0/P1 event within -15/+30 min"}
+  - {id: V-H16, reason: NEWS_DATA_UNAVAILABLE, severity: HIGH, cond: "calendar feed outage (fail closed)"}
+  - {id: V-H17, reason: FUNDING_WINDOW_ACTIVE, severity: MEDIUM, cond: "within -15/+5 min of 8h settlement"}
+  - {id: V-H18, reason: MARK_INDEX_DIVERGENCE, severity: HIGH, cond: "abs(mark-index)/index > 0.5%"}
+  - {id: V-H19, reason: ENTRY_GEOMETRY_INVALID, severity: CRITICAL, cond: "inverted zone, entry outside SL..TP, or zone > 0.5 ATR"}
+  - {id: V-H20, reason: STOP_INVALID, severity: CRITICAL, cond: "SL < max(0.65%, 0.5 ATR) or SL > 4.5 ATR"}
+  - {id: V-H21, reason: TARGET_INVALID, severity: CRITICAL, cond: "TP ordering wrong or TP inside entry zone"}
+  - {id: V-H22, reason: NET_RR_TOO_LOW, severity: CRITICAL, cond: "net R:R after fees+slip+funding < 1.50"}
+  - {id: V-H23, reason: SLIPPAGE_TOO_HIGH, severity: HIGH, cond: "slippage estimate > 15% of stop distance"}
+  - {id: V-H24, reason: DUPLICATE_SIGNAL, severity: MEDIUM, cond: "same symbol+direction+strategy within 30min"}
+  - {id: V-H25, reason: SYMBOL_COOLDOWN, severity: MEDIUM, cond: "symbol inside 30min lock"}
+  - {id: V-H26, reason: PORTFOLIO_HEAT, severity: HIGH, cond: "concurrent >= 2 or open risk > 3.0%"}
+  - {id: V-H27, reason: CLUSTER_HEAT, severity: HIGH, cond: "cluster effective risk > 2.0R"}
+  - {id: V-H28, reason: DAILY_LOSS_CAP, severity: CRITICAL, cond: "day PnL <= -3% equity"}
+  - {id: V-H29, reason: WEEKLY_LOSS_CAP, severity: CRITICAL, cond: "week PnL <= -6% equity"}
+  - {id: V-H30, reason: TRADING_HALTED, severity: CRITICAL, cond: "instrument status != TRADING"}
+  - {id: V-H31, reason: COINDCX_FEED_UNAVAILABLE, severity: HIGH, cond: "no validation price at publish time"}
+  - {id: V-H32, reason: ENTRY_DRIFT_EXCEEDED, severity: HIGH, cond: "abs(coindcx - reference)/reference > 0.35%"}
+  - {id: V-H33, reason: REGIME_INELIGIBLE, severity: MEDIUM, cond: "NOISE_CHOP or atr_bps outside [4,400]"}
+  - {id: V-H34, reason: MODEL_PROBABILITY_UNVALIDATED, severity: CRITICAL, cond: "calibration artefact missing or > 90 days old"}
+
+soft_vetoes:
+  - {id: V-S01, reason: BTC_DIRECTIONAL_CONFLICT, effect: "conf -15, threshold +5", escalates_to_hard: "BTC 5m < -1.0%"}
+  - {id: V-S02, reason: BTC_VOLATILITY_INSTABILITY, effect: "conf -10"}
+  - {id: V-S03, reason: WEAK_TREND, effect: "conf -8 (ADX14 < 18)"}
+  - {id: V-S04, reason: FUNDING_EXTREME, effect: "risk x0.5", escalates_to_hard: "abs(funding) > 0.05%"}
+  - {id: V-S05, reason: OI_INSTABILITY, effect: "conf -8"}
+  - {id: V-S06, reason: POOR_LIQUIDITY, effect: "risk x0.6"}
+  - {id: V-S07, reason: CORRELATED_EXPOSURE, effect: "risk x0.5"}
+  - {id: V-S08, reason: CLUSTER_HEAT_HIGH, effect: "threshold +3", escalates_to_hard: "cluster > 2.0R"}
+  - {id: V-S09, reason: WEAK_SESSION, effect: "conf -5"}
+  - {id: V-S10, reason: LATE_ENTRY, effect: "threshold +5", escalates_to_hard: "progress > 0.35"}
+  - {id: V-S11, reason: WEAK_ORDERFLOW, effect: "conf -10"}
+  - {id: V-S12, reason: VOLATILITY_MISMATCH, effect: "risk x0.7"}
+  - {id: V-S13, reason: LOW_QUALITY_REGIME, effect: "conf -12"}
+  - {id: V-S14, reason: POOR_EXECUTION_QUALITY, effect: "threshold +5"}
+  - {id: V-S15, reason: SCORE_BELOW_PUBLISH, effect: "suppress"}

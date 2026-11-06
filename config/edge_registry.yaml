@@ -1,0 +1,39 @@
+version: "4.0.0"
+generated: "2026-11-06"
+conventions:
+  status: [ACTIVE, SHADOW, EXPERIMENTAL, REJECT]
+  evidence_status: [ESTABLISHED, PROMISING, SPECULATIVE, NOT_PROVEN, DATA_SOURCE_NOT_VERIFIED, UNSUPPORTED_FOR_HORIZON, ESTABLISHED_METHOD_NOT_CALIBRATED]
+  archetype: [SETUP, CONFIRM, FEATURE, TARGET, RISK, REGIME, MODIFIER, FILTER, EXECUTION]
+edges:
+  - {id: E01, legacy: "EDGE_1", name: Liquidity Sweep and Reclaim, archetype: SETUP, direction: BOTH, status: ACTIVE, evidence: PROMISING, cluster: C3}
+  - {id: E02, legacy: "4-stage sweep", name: Four-Stage Sweep Confirmation, archetype: CONFIRM, direction: BOTH, status: SHADOW, evidence: NOT_PROVEN, cluster: C3}
+  - {id: E03, legacy: "calibration x1", name: Sweep Depth normalised by ATR, archetype: FEATURE, direction: BOTH, status: ACTIVE, evidence: PROMISING, cluster: C3}
+  - {id: E04, legacy: "liquidity pools", name: Liquidity Pool EQH-EQL, archetype: FEATURE, direction: BOTH, status: ACTIVE, evidence: PROMISING, cluster: C3}
+  - {id: E05, legacy: "structure", name: BOS and CHoCH, archetype: CONFIRM, direction: BOTH, status: SHADOW, evidence: PROMISING, cluster: C3}
+  - {id: E06, legacy: "zones", name: Supply Demand Zone Confluence, archetype: CONFIRM, direction: BOTH, status: SHADOW, evidence: SPECULATIVE, cluster: C3}
+  - {id: E07, legacy: "volume profile", name: Volume Profile POC VAH VAL, archetype: TARGET, direction: BOTH, status: ACTIVE, evidence: PROMISING, cluster: C5}
+  - {id: E08, legacy: "anchored vwap", name: Anchored VWAP, archetype: CONFIRM, direction: BOTH, status: EXPERIMENTAL, evidence: SPECULATIVE, cluster: C5}
+  - {id: E09, legacy: "poor high low", name: Poor High Poor Low, archetype: CONFIRM, direction: BOTH, status: EXPERIMENTAL, evidence: SPECULATIVE, cluster: C5}
+  - {id: E10, legacy: "fvg", name: Fair Value Gap, archetype: TARGET, direction: BOTH, status: SHADOW, evidence: NOT_PROVEN, cluster: C5}
+  - {id: E11, legacy: "volatility", name: ATR Realised Volatility, archetype: FEATURE, direction: BOTH, status: ACTIVE, evidence: ESTABLISHED, cluster: RISK}
+  - {id: E12, legacy: "dynamic sl buffer", name: Dynamic Stop Buffer, archetype: RISK, direction: BOTH, status: ACTIVE, evidence: PROMISING, cluster: RISK}
+  - {id: E13, legacy: "z_liq", name: Liquidation Burst Z-score, archetype: CONFIRM, direction: BOTH, status: SHADOW, evidence: NOT_PROVEN, cluster: C1}
+  - {id: E14, legacy: "liq clusters", name: Liquidation Cluster Proximity, archetype: CONFIRM, direction: BOTH, status: EXPERIMENTAL, evidence: DATA_SOURCE_NOT_VERIFIED, cluster: C1}
+  - {id: E15, legacy: "cvd turn", name: CVD Turn, archetype: CONFIRM, direction: BOTH, status: SHADOW, evidence: PROMISING, cluster: C2}
+  - {id: E16, legacy: "obi", name: Order Book Imbalance top10, archetype: CONFIRM, direction: BOTH, status: SHADOW, evidence: NOT_PROVEN, cluster: C2}
+  - {id: E17, legacy: "book density", name: Book Density Absorption, archetype: CONFIRM, direction: BOTH, status: SHADOW, evidence: NOT_PROVEN, cluster: C2}
+  - {id: E18, legacy: "microprice", name: Microprice, archetype: EXECUTION, direction: BOTH, status: REJECT, evidence: UNSUPPORTED_FOR_HORIZON, cluster: NONE}
+  - {id: E19, legacy: "microbar", name: Microbar Volume Clock, archetype: EXECUTION, direction: BOTH, status: REJECT, evidence: UNSUPPORTED_FOR_HORIZON, cluster: NONE}
+  - {id: E20, legacy: "hawkes", name: Hawkes Trade Intensity, archetype: CONFIRM, direction: BOTH, status: SHADOW, evidence: NOT_PROVEN, cluster: C1}
+  - {id: E21, legacy: "EDGE_6", name: OI Exhaustion Reversal, archetype: SETUP, direction: LONG, status: SHADOW, evidence: PROMISING, cluster: C4}
+  - {id: E22, legacy: "EDGE_7", name: Spot-Led Basis Divergence, archetype: CONFIRM, direction: BOTH, status: EXPERIMENTAL, evidence: PROMISING, cluster: C4}
+  - {id: E23, legacy: "funding context", name: Funding Context, archetype: RISK, direction: BOTH, status: ACTIVE, evidence: ESTABLISHED, cluster: C4}
+  - {id: E24, legacy: "mark index div", name: Mark Index Divergence, archetype: RISK, direction: BOTH, status: ACTIVE, evidence: ESTABLISHED, cluster: C4}
+  - {id: E25, legacy: "variance ratio", name: Variance Ratio Regime, archetype: REGIME, direction: BOTH, status: SHADOW, evidence: ESTABLISHED_METHOD_NOT_CALIBRATED, cluster: C6}
+  - {id: E26, legacy: "gex", name: GEX and Gamma Flip, archetype: REGIME, direction: BOTH, status: REJECT, evidence: DATA_SOURCE_NOT_VERIFIED, cluster: NONE}
+  - {id: E27, legacy: "session", name: Session Classification, archetype: MODIFIER, direction: BOTH, status: EXPERIMENTAL, evidence: PROMISING, cluster: C6}
+  - {id: E28, legacy: "expiry engine", name: Signal Expiry Engine, archetype: RISK, direction: BOTH, status: ACTIVE, evidence: ESTABLISHED, cluster: RISK}
+  - {id: X01, legacy: null, name: BTC Directional Conflict, archetype: MODIFIER, direction: BOTH, status: ACTIVE, evidence: PROMISING, cluster: V_S01}
+  - {id: X02, legacy: null, name: Relative Volume Gate, archetype: FILTER, direction: BOTH, status: ACTIVE, evidence: PROMISING, cluster: FILTER}
+  - {id: X03, legacy: null, name: CoinDCX Spread Liquidity Gate, archetype: FILTER, direction: BOTH, status: ACTIVE, evidence: ESTABLISHED, cluster: FILTER}
+  - {id: X04, legacy: null, name: Late Entry Suppression, archetype: FILTER, direction: BOTH, status: ACTIVE, evidence: PROMISING, cluster: FILTER}

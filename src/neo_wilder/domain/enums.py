@@ -1,0 +1,156 @@
+"""Domain enumerations for NEO-WILDER V4.
+
+All enums are strictly immutable and define canonical domain constants.
+"""
+
+from enum import Enum
+
+
+class ExecutionMode(str, Enum):
+    """Permitted execution modes for NEO-WILDER V4."""
+
+    SIGNAL = "SIGNAL"
+    SHADOW = "SHADOW"
+    BACKTEST = "BACKTEST"
+
+
+class Direction(str, Enum):
+    """Trading and setup direction."""
+
+    LONG = "LONG"
+    SHORT = "SHORT"
+    BOTH = "BOTH"
+
+
+class SymbolTier(str, Enum):
+    """Symbol liquidity classification."""
+
+    MAJOR = "MAJOR"
+    ALT = "ALT"
+
+
+class EdgeStatus(str, Enum):
+    """Operational status of an edge."""
+
+    ACTIVE = "ACTIVE"
+    SHADOW = "SHADOW"
+    EXPERIMENTAL = "EXPERIMENTAL"
+    REJECT = "REJECT"
+
+
+class EvidenceStatus(str, Enum):
+    """Empirical evidence status."""
+
+    ESTABLISHED = "ESTABLISHED"
+    PROMISING = "PROMISING"
+    SPECULATIVE = "SPECULATIVE"
+    NOT_PROVEN = "NOT_PROVEN"
+    DATA_SOURCE_NOT_VERIFIED = "DATA_SOURCE_NOT_VERIFIED"
+    UNSUPPORTED_FOR_HORIZON = "UNSUPPORTED_FOR_HORIZON"
+    ESTABLISHED_METHOD_NOT_CALIBRATED = "ESTABLISHED_METHOD_NOT_CALIBRATED"
+
+
+class Archetype(str, Enum):
+    """Functional edge archetype."""
+
+    SETUP = "SETUP"
+    CONFIRM = "CONFIRM"
+    FEATURE = "FEATURE"
+    TARGET = "TARGET"
+    RISK = "RISK"
+    REGIME = "REGIME"
+    MODIFIER = "MODIFIER"
+    FILTER = "FILTER"
+    EXECUTION = "EXECUTION"
+
+
+class ScoringCluster(str, Enum):
+    """Orthogonal correlation clusters."""
+
+    C1 = "C1"  # forced-flow (liquidation bursts)
+    C2 = "C2"  # order flow (CVD, OBI, absorption)
+    C3 = "C3"  # structure (sweeps, pools, BOS)
+    C4 = "C4"  # positioning (OI exhaustion, basis, funding)
+    C5 = "C5"  # location (Volume profile, FVG)
+    C6 = "C6"  # regime (gate only)
+    RISK = "RISK"
+    FILTER = "FILTER"
+    V_S01 = "V_S01"
+    NONE = "NONE"
+
+
+class RegimeState(str, Enum):
+    """Market regime classification from VR and volatility composite."""
+
+    MEAN_REVERSION_ROTATIONAL = "MEAN_REVERSION / ROTATIONAL"
+    NEUTRAL = "NEUTRAL"
+    MOMENTUM_TREND = "MOMENTUM_TREND"
+    NOISE_CHOP = "NOISE_CHOP"
+    LIQUIDITY_STRESS = "LIQUIDITY_STRESS"
+
+
+class VetoSeverity(str, Enum):
+    """Severity level of vetoes."""
+
+    CRITICAL = "CRITICAL"
+    HIGH = "HIGH"
+    MEDIUM = "MEDIUM"
+
+
+class HardVetoReason(str, Enum):
+    """Canonical reason codes for all 34 Hard Vetoes."""
+
+    DATA_STALE = "DATA_STALE"
+    DATA_GAP = "DATA_GAP"
+    CANDLE_TS_INVALID = "CANDLE_TS_INVALID"
+    DUPLICATE_CANDLE = "DUPLICATE_CANDLE"
+    WS_DISCONNECTED = "WS_DISCONNECTED"
+    ORDERBOOK_STALE = "ORDERBOOK_STALE"
+    CLOCK_DESYNC = "CLOCK_DESYNC"
+    MEMORY_EMERGENCY = "MEMORY_EMERGENCY"
+    KILL_SWITCH = "KILL_SWITCH"
+    WATCHDOG_FAILURE = "WATCHDOG_FAILURE"
+    CRITICAL_SOURCE_DOWN = "CRITICAL_SOURCE_DOWN"
+    ABNORMAL_SPREAD = "ABNORMAL_SPREAD"
+    INSUFFICIENT_LIQUIDITY = "INSUFFICIENT_LIQUIDITY"
+    EXTREME_GAP = "EXTREME_GAP"
+    NEWS_WINDOW_ACTIVE = "NEWS_WINDOW_ACTIVE"
+    NEWS_DATA_UNAVAILABLE = "NEWS_DATA_UNAVAILABLE"
+    FUNDING_WINDOW_ACTIVE = "FUNDING_WINDOW_ACTIVE"
+    MARK_INDEX_DIVERGENCE = "MARK_INDEX_DIVERGENCE"
+    ENTRY_GEOMETRY_INVALID = "ENTRY_GEOMETRY_INVALID"
+    STOP_INVALID = "STOP_INVALID"
+    TARGET_INVALID = "TARGET_INVALID"
+    NET_RR_TOO_LOW = "NET_RR_TOO_LOW"
+    SLIPPAGE_TOO_HIGH = "SLIPPAGE_TOO_HIGH"
+    DUPLICATE_SIGNAL = "DUPLICATE_SIGNAL"
+    SYMBOL_COOLDOWN = "SYMBOL_COOLDOWN"
+    PORTFOLIO_HEAT = "PORTFOLIO_HEAT"
+    CLUSTER_HEAT = "CLUSTER_HEAT"
+    DAILY_LOSS_CAP = "DAILY_LOSS_CAP"
+    WEEKLY_LOSS_CAP = "WEEKLY_LOSS_CAP"
+    TRADING_HALTED = "TRADING_HALTED"
+    COINDCX_FEED_UNAVAILABLE = "COINDCX_FEED_UNAVAILABLE"
+    ENTRY_DRIFT_EXCEEDED = "ENTRY_DRIFT_EXCEEDED"
+    REGIME_INELIGIBLE = "REGIME_INELIGIBLE"
+    MODEL_PROBABILITY_UNVALIDATED = "MODEL_PROBABILITY_UNVALIDATED"
+
+
+class SoftVetoReason(str, Enum):
+    """Canonical reason codes for all 15 Soft Vetoes."""
+
+    BTC_DIRECTIONAL_CONFLICT = "BTC_DIRECTIONAL_CONFLICT"
+    BTC_VOLATILITY_INSTABILITY = "BTC_VOLATILITY_INSTABILITY"
+    WEAK_TREND = "WEAK_TREND"
+    FUNDING_EXTREME = "FUNDING_EXTREME"
+    OI_INSTABILITY = "OI_INSTABILITY"
+    POOR_LIQUIDITY = "POOR_LIQUIDITY"
+    CORRELATED_EXPOSURE = "CORRELATED_EXPOSURE"
+    CLUSTER_HEAT_HIGH = "CLUSTER_HEAT_HIGH"
+    WEAK_SESSION = "WEAK_SESSION"
+    LATE_ENTRY = "LATE_ENTRY"
+    WEAK_ORDERFLOW = "WEAK_ORDERFLOW"
+    VOLATILITY_MISMATCH = "VOLATILITY_MISMATCH"
+    LOW_QUALITY_REGIME = "LOW_QUALITY_REGIME"
+    POOR_EXECUTION_QUALITY = "POOR_EXECUTION_QUALITY"
+    SCORE_BELOW_PUBLISH = "SCORE_BELOW_PUBLISH"

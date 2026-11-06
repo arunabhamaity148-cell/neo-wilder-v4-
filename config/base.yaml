@@ -1,0 +1,104 @@
+version: "4.0.0"
+mode: "SIGNAL"  # Permitted: SIGNAL, SHADOW, BACKTEST
+
+system:
+  process_model: "single_asyncio"
+  max_rss_mb_target: 220
+  hard_rss_ceiling_mb: 300
+  sqlite_path: "data/neo_wilder_journal.db"
+  sqlite_wal: true
+  sqlite_cache_size: -20000
+
+network:
+  binance_ws_url: "wss://fstream.binance.com/stream"
+  binance_rest_url: "https://fapi.binance.com"
+  coindcx_public_rest_url: "https://public.coindcx.com"
+  coindcx_api_rest_url: "https://api.coindcx.com"
+  rest_poll_interval_sec: 30
+  ws_disconnect_veto_sec: 5.0
+  clock_desync_limit_ms: 1000
+
+execution_validation:
+  max_price_drift_pct: 0.35
+  max_spread_bps_major: 12.0
+  max_spread_bps_alt: 25.0
+  min_orderbook_depth_mult: 20.0
+  default_intended_clip_usd: 500.0
+
+friction_model:
+  coindcx_taker_fee_pct: 0.050
+  coindcx_maker_fee_pct: 0.044
+  indian_gst_rate_pct: 18.0
+  effective_round_trip_fee_pct: 0.1180
+  slippage_spread_factor: 0.5
+  slippage_atr_factor: 0.3
+  slippage_floor_bps: 1.0
+  baseline_round_trip_friction_pct: 0.1354
+
+risk_geometry:
+  min_net_rr: 1.50
+  min_sl_pct: 0.65
+  min_sl_atr_factor: 0.50
+  max_sl_atr_factor: 4.50
+  max_entry_zone_atr_factor: 0.50
+  min_entry_zone_width_pct: 0.20
+  min_entry_zone_width_atr_factor: 0.05
+  max_slippage_pct_of_stop: 15.0
+
+portfolio:
+  max_concurrent_trades: 2
+  max_total_open_risk_pct: 3.0
+  max_cluster_effective_risk_r: 2.0
+  max_daily_loss_pct: 3.0
+  max_weekly_loss_pct: 6.0
+  duplicate_signal_cooldown_sec: 1800
+  symbol_lock_cooldown_sec: 1800
+
+scoring:
+  cluster_caps:
+    c1_forced_flow: 12
+    c2_order_flow: 12
+    c3_structure: 20
+    c4_positioning: 12
+    c5_location: 10
+    c6_regime_gate: 0
+  c1_c2_combined_cap: 24
+  rr_bonus_max: 4
+  max_composite_score: 100
+  publish_threshold: 85.0
+
+edges:
+  # Active Edges
+  e01_sweep_reclaim: true
+  e03_sweep_depth: true
+  e04_liquidity_pools: true
+  e07_volume_profile: true
+  e11_atr_volatility: true
+  e12_dynamic_sl_buffer: true
+  e23_funding_context: true
+  e24_mark_index_divergence: true
+  e28_expiry_engine: true
+  x01_btc_conflict: true
+  x02_relative_volume: true
+  x03_coindcx_gate: true
+  x04_late_entry: true
+
+  # Shadow Edges (telemetry only)
+  e02_four_stage_sweep: false
+  e05_structure_bos: false
+  e06_supply_demand_zones: false
+  e10_fair_value_gap: false
+  e13_liquidation_burst: false
+  e15_cvd_turn: false
+  e16_order_book_imbalance: false
+  e17_book_density_absorption: false
+  e20_hawkes_intensity: false
+  e21_oi_exhaustion: false
+  e25_variance_ratio_regime: false
+
+  # Experimental Edges (sandbox only)
+  e08_anchored_vwap: false
+  e09_poor_high_low: false
+  e14_liq_clusters: false
+  e22_basis_divergence: false
+  e27_session_classification: false
