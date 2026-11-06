@@ -14,7 +14,7 @@
 | **Phase 1** | Repository Foundation & Frozen Contracts | **COMPLETE** | Config, Enums, Models, Schema & Tests Pass (5/5) |
 | **Phase 2** | Data Plane & Integrity Engine | **COMPLETE** | Store (WAL), Integrity (V-H01..04), REST, WS & Tests Pass (4/4) |
 | **Phase 3** | Feature Engine (Pure transforms, no look-ahead) | **COMPLETE** | ATR, Swings, Liquidity, Structure, VP, Funding, CVD, OBI, Regime & Tests Pass (8/8) |
-| **Phase 4** | Pure Edge Modules (32 Edges) | **PENDING** | Pos/Neg/Abstain Unit Tests for all Edges |
+| **Phase 4** | Pure Edge Modules (32 Edges) | **COMPLETE** | E01 Spine, Feature/Risk Edges, Shadow Isolation & Tests Pass (5/5) |
 | **Phase 5** | Strategy & Regime Engine (S1 Long, S2/S3 Shadow)| **PENDING** | Historical Replay (0.5–6 signals/day) |
 | **Phase 6** | Hard/Soft Veto Framework (34 Hard + 15 Soft) | **PENDING** | 34 Hard + 15 Soft Veto Tests Pass |
 | **Phase 7** | Scoring & Calibration Engine (Caps, Isotonic) | **PENDING** | Monotonicity & NOT CALIBRATED Gate |
