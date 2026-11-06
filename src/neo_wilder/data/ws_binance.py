@@ -128,6 +128,7 @@ class BinanceWebSocketClient:
     def _handle_message(self, raw_text: str):
         """Parse raw stream payload into typed dataclasses."""
         try:
+            self._last_message_ts = time.monotonic()
             payload = json.loads(raw_text)
             stream_name = payload.get("stream", "")
             data = payload.get("data", {})

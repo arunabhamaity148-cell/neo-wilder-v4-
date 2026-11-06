@@ -20,6 +20,7 @@ from neo_wilder.edges.e13_liq_burst import E13LiqBurst
 from neo_wilder.edges.e15_cvd_turn import E15CVDTurn
 from neo_wilder.edges.e16_obi import E16OBI
 from neo_wilder.edges.e17_absorption import E17Absorption
+from neo_wilder.edges.e21_oi_exhaustion import E21OIExhaustion
 from neo_wilder.edges.e23_funding_context import E23FundingContext
 from neo_wilder.edges.e24_mark_index_div import E24MarkIndexDiv
 from neo_wilder.edges.e28_expiry_engine import E28ExpiryEngine
@@ -54,6 +55,7 @@ class EdgeRunner:
             "E15": E15CVDTurn(),
             "E16": E16OBI(),
             "E17": E17Absorption(),
+            "E21": E21OIExhaustion(),
             "E23": E23FundingContext(),
             "E24": E24MarkIndexDiv(),
             "E28": E28ExpiryEngine(),

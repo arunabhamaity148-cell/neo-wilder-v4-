@@ -28,7 +28,7 @@ from neo_wilder.data.rest_coindcx import CoinDCXPublicClient
 from neo_wilder.data.store import DatabaseStore
 from neo_wilder.data.ws_binance import BinanceWebSocketClient
 from neo_wilder.domain.enums import ExecutionMode
-from neo_wilder.domain.models import Candle, EdgeResult, FundingSnapshot, OISnapshot
+from neo_wilder.domain.models import Candidate, Candle, EdgeResult, FundingSnapshot, OISnapshot
 from neo_wilder.edges.base import FeatureContext
 from neo_wilder.edges.registry import EdgeRegistry
 from neo_wilder.edges.runner import EdgeRunner
@@ -51,6 +51,7 @@ from neo_wilder.publish.telegram import TelegramAlertPublisher
 from neo_wilder.scoring.groups import CompositeScorer
 from neo_wilder.shadow.runner import ShadowRunner
 from neo_wilder.strategies.s1_sweep_reclaim import S1SweepReclaimStrategy
+from neo_wilder.strategies.s2_oi_exhaustion import S2OIExhaustionStrategy
 from neo_wilder.vetoes.governor import PortfolioGovernor
 from neo_wilder.vetoes.pipeline import VetoPipeline
 
@@ -109,6 +110,7 @@ class NeoWilderApplication:
         self.s1_strategy = S1SweepReclaimStrategy(
             baseline_friction_pct=self.config.friction.baseline_round_trip_friction_pct
         )
+        self.s2_strategy = S2OIExhaustionStrategy()
         self.regime_classifier = RegimeClassifier()
 
         # Telemetry & Observability
@@ -226,49 +228,47 @@ class NeoWilderApplication:
             except Exception as e:
                 logger.error(f"Error in health monitor loop: {e}", exc_info=True)
 
+    async def poll_derivatives_once(self) -> None:
+        """Single polling cycle for Funding and Open Interest context across all active symbols.
+
+        Ensures p_data lifecycle is strictly isolated per-symbol, preventing any mark price contamination.
+        Funding and OI fetch failures are handled independently.
+        """
+        now_ms = int(time.time() * 1000)
+        for sym in self.active_symbols:
+            funding_snap: Optional[FundingSnapshot] = None
+            # 1. Fetch Premium Index / Funding independently
+            try:
+                funding_snap = await self.binance_rest.get_premium_index(sym)
+                if funding_snap:
+                    self._funding_cache[sym] = FundingEngine.evaluate(funding_snap, now_ms)
+            except Exception as e:
+                logger.debug(f"Derivatives poll funding error for {sym}: {e}")
+
+            # 2. Fetch Open Interest independently (strictly isolated to sym, no cross-symbol leak)
+            try:
+                oi_raw = await self.binance_rest.get_open_interest(sym)
+                if oi_raw:
+                    mark_p = funding_snap.mark_price if funding_snap else 0.0
+                    oi_snap = OISnapshot(
+                        symbol=sym,
+                        timestamp_ms=oi_raw.timestamp_ms,
+                        open_interest=oi_raw.open_interest,
+                        open_interest_value=oi_raw.open_interest * mark_p,
+                    )
+                    if sym not in self._oi_history:
+                        self._oi_history[sym] = []
+                    self._oi_history[sym].append(oi_snap)
+                    if len(self._oi_history[sym]) > 50:
+                        self._oi_history[sym].pop(0)
+            except Exception as e:
+                logger.debug(f"Derivatives poll OI error for {sym}: {e}")
+
     async def _poll_derivatives_loop(self):
-        """Periodic 30-second background fetch of Funding and Open Interest context."""
+        """Periodic background loop invoking poll_derivatives_once."""
         while not self._shutdown_event.is_set():
             try:
-                now_ms = int(time.time() * 1000)
-                for sym in self.active_symbols:
-                    # 1. Fetch Premium Index / Funding
-                    try:
-                        p_data = await self.binance_rest.get_premium_index(sym)
-                        if p_data:
-                            snap = FundingSnapshot(
-                                symbol=sym,
-                                timestamp_ms=int(p_data.get("time", now_ms)),
-                                mark_price=float(p_data.get("markPrice", 0.0)),
-                                index_price=float(p_data.get("indexPrice", 0.0)),
-                                funding_rate=float(p_data.get("lastFundingRate", 0.0)),
-                                next_funding_time_ms=int(p_data.get("nextFundingTime", 0)),
-                            )
-                            self._funding_cache[sym] = FundingEngine.evaluate(snap, now_ms)
-                    except Exception as e:
-                        logger.debug(f"Derivatives poll funding error for {sym}: {e}")
-
-                    # 2. Fetch Open Interest
-                    try:
-                        oi_data = await self.binance_rest.get_open_interest(sym)
-                        if oi_data:
-                            oi_val = float(oi_data.get("openInterest", 0.0))
-                            oi_snap = OISnapshot(
-                                symbol=sym,
-                                timestamp_ms=int(oi_data.get("time", now_ms)),
-                                open_interest=oi_val,
-                                open_interest_value=oi_val * float(p_data.get("markPrice", 1.0))
-                                if p_data
-                                else 0.0,
-                            )
-                            if sym not in self._oi_history:
-                                self._oi_history[sym] = []
-                            self._oi_history[sym].append(oi_snap)
-                            if len(self._oi_history[sym]) > 50:
-                                self._oi_history[sym].pop(0)
-                    except Exception as e:
-                        logger.debug(f"Derivatives poll OI error for {sym}: {e}")
-
+                await self.poll_derivatives_once()
                 await asyncio.sleep(float(self.config.network.rest_poll_interval_sec))
             except asyncio.CancelledError:
                 break
@@ -347,144 +347,197 @@ class NeoWilderApplication:
             # 4. Evaluate Real Edges via EdgeRunner
             edge_results: Dict[str, EdgeResult] = self.edge_runner.evaluate_all(ctx)
 
-            # 5. Generate S1 Candidate Setup
-            candidate = self.s1_strategy.generate_candidate(ctx, edge_results)
-            if not candidate:
-                return
+            # 5. Generate Candidate Setups (S1 always; S2 in SHADOW mode only)
+            candidates_to_process: List[Candidate] = []
+            s1_cand = self.s1_strategy.generate_candidate(ctx, edge_results)
+            if s1_cand:
+                candidates_to_process.append(s1_cand)
 
-            logger.info(
-                f"Candidate setup detected on {symbol}: Entry [{candidate.entry_zone_low} - {candidate.entry_zone_high}]"
-            )
-
-            # 6. Fetch CoinDCX Validation Quote
-            cdcx_pair = (
-                self.universe_manager.get_coindcx_pair(symbol)
-                or f"B-{symbol.replace('USDT', '')}_USDT"
-            )
-            cdcx_quote = await self.coindcx_client.get_validation_quote(
-                cdcx_pair, candle.close_time_ms
-            )
-
-            tier = self.universe_manager.get_symbol_tier(symbol)
-            cdcx_val = self.coindcx_validator.validate_candidate(
-                reference_price=candidate.reference_price,
-                entry_zone_low=candidate.entry_zone_low,
-                entry_zone_high=candidate.entry_zone_high,
-                tp1=candidate.tp1,
-                quote=cdcx_quote,
-                symbol_tier=tier,
-            )
-
-            if not cdcx_val.is_valid:
-                logger.info(
-                    f"Candidate {symbol} blocked by CoinDCX gate: {cdcx_val.reason} ({cdcx_val.veto_id})"
-                )
-                return
-
-            # 7. Evaluate Veto Pipeline (Infrastructure, Risk Guard, Hard & Soft Vetoes)
-            is_ws_disconnected = (
-                self.ws_client.is_stale_or_disconnected() if self.ws_client else True
-            )
-            orderbook_age_sec = (
-                (time.time() - (orderbook.timestamp_ms / 1000.0)) if orderbook else 999.0
-            )
-            is_orderbook_stale = orderbook_age_sec > 3.0
-
-            passed, hard_res, soft_res = self.veto_pipeline.evaluate_candidate(
-                candidate=candidate,
-                ctx=ctx,
-                quote=cdcx_quote,
-                clock=self.clock,
-                is_ws_disconnected=is_ws_disconnected,
-                is_orderbook_stale=is_orderbook_stale,
-                publish_threshold=self.config.scoring.publish_threshold,
-            )
-
-            if not passed:
-                logger.info(
-                    f"Candidate {symbol} blocked by Veto: {hard_res.blocking_id} ({hard_res.reason_code})"
-                )
-                return
-
-            # 8. Compute Correlation-Aware Composite Quality Score with Real Edge Results
-            score_breakdown = self.scorer.score(
-                candidate=candidate,
-                edge_results=edge_results,
-                confidence_penalty=soft_res.confidence_penalty,
-            )
-
-            threshold = self.config.scoring.publish_threshold + soft_res.threshold_increment
-            if score_breakdown.total_score < threshold:
-                logger.info(
-                    f"Candidate {symbol} score {score_breakdown.total_score} below effective threshold {threshold:.1f}. Blocked."
-                )
-                return
-
-            # 9. Dispatch based on mode
             if self.mode == ExecutionMode.SHADOW:
-                if self.shadow_runner is not None:
-                    await self.shadow_runner.handle_shadow_candidate(
-                        candidate=candidate,
-                        edge_results=edge_results,
-                        veto_passed=passed,
-                    )
+                s2_cand = self.s2_strategy.generate_candidate(ctx, edge_results)
+                if s2_cand:
+                    # S2 collision invariant: cannot fire within 30 min of S1 on the same symbol
+                    if not self.governor.is_symbol_locked(symbol):
+                        candidates_to_process.append(s2_cand)
+
+            if not candidates_to_process:
                 return
 
-            # 10. SIGNAL Mode: Build Immutable Signal & Publish to Telegram
-            sig_id = f"SIG-{symbol}-{int(datetime.now(timezone.utc).timestamp())}"
-            created_at = datetime.now(timezone.utc)
-            expiry_duration_min = max(1, candidate.expiry_bars) * 15
-            expires_at = created_at + timedelta(minutes=expiry_duration_min)
+            for candidate in candidates_to_process:
+                logger.info(
+                    f"Candidate setup detected on {symbol} ({candidate.strategy_id}): "
+                    f"Entry [{candidate.entry_zone_low} - {candidate.entry_zone_high}]"
+                )
 
-            signal_obj = Signal(
-                signal_id=sig_id,
-                created_at_utc=created_at.isoformat(),
-                expires_at_utc=expires_at.isoformat(),
-                symbol_binance=symbol,
-                symbol_coindcx=cdcx_pair,
-                direction=candidate.direction,
-                strategy_id=candidate.strategy_id,
-                active_edge_ids=candidate.active_edge_ids,
-                confirming_edge_ids=candidate.confirming_edge_ids,
-                reference_price=candidate.reference_price,
-                coindcx_price=cdcx_quote.price if cdcx_quote else candidate.reference_price,
-                coindcx_spread_bps=cdcx_quote.spread_bps if cdcx_quote else 5.0,
-                coindcx_top10_depth_usd=cdcx_quote.top10_depth_usd if cdcx_quote else 100000.0,
-                entry_zone_low=candidate.entry_zone_low,
-                entry_zone_high=candidate.entry_zone_high,
-                stop_loss=candidate.stop_loss,
-                tp1=candidate.tp1,
-                tp2=candidate.tp2,
-                gross_rr=candidate.gross_rr,
-                fee_pct=cdcx_val.fee_pct,
-                slippage_pct=cdcx_val.slippage_pct,
-                funding_pct_est=funding_ctx.funding_rate_pct if funding_ctx else 0.0,
-                net_rr=candidate.net_rr,
-                score_0_100=score_breakdown.total_score,
-                calibrated_probability="NOT CALIBRATED",
-                regime=regime_out.state,
-                btc_context="NEUTRAL",
-                veto_status="CLEARED",
-                soft_veto_list=soft_res.active_soft_vetoes,
-                max_entry_drift_pct=self.config.validation.max_price_drift_pct,
-                invalidation_conditions=[f"Bar closes below {candidate.stop_loss:.2f}"],
-                one_paragraph_thesis=(
-                    f"{symbol} S1 sweep-reclaim confirmed at key liquidity pool with orthogonal edge confluence "
-                    f"(Score: {score_breakdown.total_score}/100, Net R:R: {candidate.net_rr:.2f})."
-                ),
-            )
+                # 6. Fetch CoinDCX Validation Quote
+                cdcx_pair = (
+                    self.universe_manager.get_coindcx_pair(symbol)
+                    or f"B-{symbol.replace('USDT', '')}_USDT"
+                )
+                cdcx_quote = await self.coindcx_client.get_validation_quote(
+                    cdcx_pair, candle.close_time_ms
+                )
 
-            # Persist and Publish
-            # Telegram failure must NOT record success in cooldown or journal as published!
-            await self.publisher.publish(signal_obj)
-            self.governor.record_signal_published(
-                symbol=symbol,
-                direction=candidate.direction.value,
-                strategy=candidate.strategy_id,
-            )
-            await self.signal_journal.log_signal(signal_obj)
-            self.outcome_resolver.track_signal(signal_obj)
-            logger.info(f"Signal {sig_id} successfully published and tracked.")
+                tier = self.universe_manager.get_symbol_tier(symbol)
+                cdcx_val = self.coindcx_validator.validate_candidate(
+                    reference_price=candidate.reference_price,
+                    entry_zone_low=candidate.entry_zone_low,
+                    entry_zone_high=candidate.entry_zone_high,
+                    tp1=candidate.tp1,
+                    quote=cdcx_quote,
+                    symbol_tier=tier,
+                )
+
+                if not cdcx_val.is_valid:
+                    logger.info(
+                        f"Candidate {symbol} ({candidate.strategy_id}) blocked by CoinDCX gate: "
+                        f"{cdcx_val.reason} ({cdcx_val.veto_id})"
+                    )
+                    if self.mode == ExecutionMode.SHADOW and self.shadow_runner is not None:
+                        await self.shadow_runner.handle_shadow_candidate(
+                            candidate=candidate,
+                            edge_results=edge_results,
+                            veto_passed=False,
+                            veto_blocking_id=cdcx_val.veto_id or "COINDCX_INVALID",
+                            rejection_stage="COINDCX_VALIDATION",
+                            rejection_reason=cdcx_val.reason,
+                        )
+                    continue
+
+                # 7. Evaluate Veto Pipeline (Infrastructure, Risk Guard, Hard & Soft Vetoes)
+                is_ws_disconnected = (
+                    self.ws_client.is_stale_or_disconnected() if self.ws_client else True
+                )
+                orderbook_age_sec = (
+                    (time.time() - (orderbook.timestamp_ms / 1000.0)) if orderbook else 999.0
+                )
+                is_orderbook_stale = orderbook_age_sec > 3.0
+
+                passed, hard_res, soft_res = self.veto_pipeline.evaluate_candidate(
+                    candidate=candidate,
+                    ctx=ctx,
+                    quote=cdcx_quote,
+                    clock=self.clock,
+                    is_ws_disconnected=is_ws_disconnected,
+                    is_orderbook_stale=is_orderbook_stale,
+                    publish_threshold=self.config.scoring.publish_threshold,
+                )
+
+                if not passed:
+                    logger.info(
+                        f"Candidate {symbol} ({candidate.strategy_id}) blocked by Veto: "
+                        f"{hard_res.blocking_id} ({hard_res.reason_code})"
+                    )
+                    if self.mode == ExecutionMode.SHADOW and self.shadow_runner is not None:
+                        await self.shadow_runner.handle_shadow_candidate(
+                            candidate=candidate,
+                            edge_results=edge_results,
+                            veto_passed=False,
+                            veto_blocking_id=hard_res.blocking_id or hard_res.reason_code,
+                            rejection_stage="VETO_PIPELINE",
+                            rejection_reason=hard_res.reason_code,
+                        )
+                    continue
+
+                # 8. Compute Correlation-Aware Composite Quality Score with Real Edge Results
+                score_breakdown = self.scorer.score(
+                    candidate=candidate,
+                    edge_results=edge_results,
+                    confidence_penalty=soft_res.confidence_penalty,
+                )
+
+                threshold = self.config.scoring.publish_threshold + soft_res.threshold_increment
+                if score_breakdown.total_score < threshold:
+                    logger.info(
+                        f"Candidate {symbol} ({candidate.strategy_id}) score {score_breakdown.total_score} "
+                        f"below effective threshold {threshold:.1f}. Blocked."
+                    )
+                    if self.mode == ExecutionMode.SHADOW and self.shadow_runner is not None:
+                        await self.shadow_runner.handle_shadow_candidate(
+                            candidate=candidate,
+                            edge_results=edge_results,
+                            veto_passed=False,
+                            veto_blocking_id=f"SCORE_{score_breakdown.total_score}_LT_{int(threshold)}",
+                            rejection_stage="QUALITY_SCORE",
+                            rejection_reason=f"Score {score_breakdown.total_score} < {threshold:.1f}",
+                            score_override=score_breakdown.total_score,
+                        )
+                    continue
+
+                # 9. Dispatch based on mode
+                if self.mode == ExecutionMode.SHADOW:
+                    if self.shadow_runner is not None:
+                        await self.shadow_runner.handle_shadow_candidate(
+                            candidate=candidate,
+                            edge_results=edge_results,
+                            veto_passed=True,
+                            veto_blocking_id=None,
+                            rejection_stage="CLEARED",
+                            rejection_reason=None,
+                            score_override=score_breakdown.total_score,
+                        )
+                    # STRICT INVARIANT: ZERO Telegram egress in SHADOW mode!
+                    continue
+
+                # 10. SIGNAL Mode: Build Immutable Signal & Publish to Telegram
+                # In SIGNAL mode, S2 candidates never publish; only S1 can publish
+                if candidate.strategy_id != "S1_SWEEP_RECLAIM":
+                    continue
+
+                sig_id = f"SIG-{symbol}-{int(datetime.now(timezone.utc).timestamp())}"
+                created_at = datetime.now(timezone.utc)
+                expiry_duration_min = max(1, candidate.expiry_bars) * 15
+                expires_at = created_at + timedelta(minutes=expiry_duration_min)
+
+                signal_obj = Signal(
+                    signal_id=sig_id,
+                    created_at_utc=created_at.isoformat(),
+                    expires_at_utc=expires_at.isoformat(),
+                    symbol_binance=symbol,
+                    symbol_coindcx=cdcx_pair,
+                    direction=candidate.direction,
+                    strategy_id=candidate.strategy_id,
+                    active_edge_ids=candidate.active_edge_ids,
+                    confirming_edge_ids=candidate.confirming_edge_ids,
+                    reference_price=candidate.reference_price,
+                    coindcx_price=cdcx_quote.price if cdcx_quote else candidate.reference_price,
+                    coindcx_spread_bps=cdcx_quote.spread_bps if cdcx_quote else 5.0,
+                    coindcx_top10_depth_usd=cdcx_quote.top10_depth_usd if cdcx_quote else 100000.0,
+                    entry_zone_low=candidate.entry_zone_low,
+                    entry_zone_high=candidate.entry_zone_high,
+                    stop_loss=candidate.stop_loss,
+                    tp1=candidate.tp1,
+                    tp2=candidate.tp2,
+                    gross_rr=candidate.gross_rr,
+                    fee_pct=cdcx_val.fee_pct,
+                    slippage_pct=cdcx_val.slippage_pct,
+                    funding_pct_est=funding_ctx.funding_rate_pct if funding_ctx else 0.0,
+                    net_rr=candidate.net_rr,
+                    score_0_100=score_breakdown.total_score,
+                    calibrated_probability="NOT CALIBRATED",
+                    regime=regime_out.state,
+                    btc_context="NEUTRAL",
+                    veto_status="CLEARED",
+                    soft_veto_list=soft_res.active_soft_vetoes,
+                    max_entry_drift_pct=self.config.validation.max_price_drift_pct,
+                    invalidation_conditions=[f"Bar closes below {candidate.stop_loss:.2f}"],
+                    one_paragraph_thesis=(
+                        f"{symbol} S1 sweep-reclaim confirmed at key liquidity pool with orthogonal edge confluence "
+                        f"(Score: {score_breakdown.total_score}/100, Net R:R: {candidate.net_rr:.2f})."
+                    ),
+                )
+
+                # Persist and Publish
+                # Telegram failure must NOT record success in cooldown or journal as published!
+                await self.publisher.publish(signal_obj)
+                self.governor.record_signal_published(
+                    symbol=symbol,
+                    direction=candidate.direction.value,
+                    strategy=candidate.strategy_id,
+                )
+                await self.signal_journal.log_signal(signal_obj)
+                self.outcome_resolver.track_signal(signal_obj)
+                logger.info(f"Signal {sig_id} successfully published and tracked.")
 
         except Exception as e:
             logger.error(f"Error processing candle for {symbol}: {e}", exc_info=True)

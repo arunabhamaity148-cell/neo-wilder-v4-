@@ -32,6 +32,10 @@ class ShadowTelemetry:
     total_shadow_candidates: int = 0
     s1_candidates_count: int = 0
     s2_shadow_candidates_count: int = 0
+    veto_blocked_count: int = 0
+    coindcx_blocked_count: int = 0
+    score_blocked_count: int = 0
+    cleared_count: int = 0
     edge_hit_counts: Dict[str, int] = field(default_factory=dict)
     veto_block_counts: Dict[str, int] = field(default_factory=dict)
 
@@ -60,6 +64,9 @@ class ShadowRunner:
         edge_results: Dict[str, EdgeResult],
         veto_passed: bool,
         veto_blocking_id: Optional[str] = None,
+        rejection_stage: Optional[str] = None,
+        rejection_reason: Optional[str] = None,
+        score_override: Optional[int] = None,
     ) -> Dict:
         """Process candidate in shadow mode, guaranteeing ZERO Telegram transmission."""
         self.telemetry.total_evaluations += 1
@@ -77,24 +84,40 @@ class ShadowRunner:
             if res.passed:
                 self.telemetry.edge_hit_counts[eid] = self.telemetry.edge_hit_counts.get(eid, 0) + 1
                 meta = self.registry.get(eid)
-                if meta.status == EdgeStatus.SHADOW:
+                if meta and meta.status == EdgeStatus.SHADOW:
                     shadow_edges_hit.append(eid)
-                elif meta.status == EdgeStatus.ACTIVE:
+                elif meta and meta.status == EdgeStatus.ACTIVE:
                     active_edges_hit.append(eid)
 
-        # Track vetoes
-        veto_status = "CLEARED" if veto_passed else f"BLOCKED_{veto_blocking_id}"
-        if not veto_passed and veto_blocking_id:
-            self.telemetry.veto_block_counts[veto_blocking_id] = (
-                self.telemetry.veto_block_counts.get(veto_blocking_id, 0) + 1
-            )
+        # Categorize rejection and veto status
+        if veto_passed:
+            veto_status = "CLEARED"
+            self.telemetry.cleared_count += 1
+        elif rejection_stage == "COINDCX_VALIDATION":
+            veto_status = f"REJECTED_COINDCX_{veto_blocking_id or 'DRIFT'}"
+            self.telemetry.coindcx_blocked_count += 1
+            if veto_blocking_id:
+                self.telemetry.veto_block_counts[veto_blocking_id] = (
+                    self.telemetry.veto_block_counts.get(veto_blocking_id, 0) + 1
+                )
+        elif rejection_stage == "QUALITY_SCORE":
+            veto_status = f"REJECTED_SCORE_{veto_blocking_id or 'BELOW_THRESHOLD'}"
+            self.telemetry.score_blocked_count += 1
+        else:
+            veto_status = f"BLOCKED_{veto_blocking_id}" if veto_blocking_id else "BLOCKED_VETO"
+            self.telemetry.veto_blocked_count += 1
+            if veto_blocking_id:
+                self.telemetry.veto_block_counts[veto_blocking_id] = (
+                    self.telemetry.veto_block_counts.get(veto_blocking_id, 0) + 1
+                )
 
         # Score computation (invariant: shadow edges contribute 0)
-        score_breakdown = self.scorer.score(candidate, edge_results)
+        final_score = score_override
+        if final_score is None:
+            score_breakdown = self.scorer.score(candidate, edge_results)
+            final_score = score_breakdown.total_score
 
-        shadow_id = (
-            f"SHADOW-{candidate.symbol}-{int(datetime.now(timezone.utc).timestamp() * 1000)}"
-        )
+        shadow_id = f"SHADOW-{candidate.symbol}-{int(datetime.now(timezone.utc).timestamp() * 1000)}-{self.telemetry.total_shadow_candidates}"
         now_str = datetime.now(timezone.utc).isoformat()
 
         payload = {
@@ -103,8 +126,10 @@ class ShadowRunner:
             "symbol": candidate.symbol,
             "direction": candidate.direction.value,
             "strategy_id": candidate.strategy_id,
-            "score_0_100": score_breakdown.total_score,
+            "score_0_100": final_score,
             "veto_status": veto_status,
+            "rejection_stage": rejection_stage or ("CLEARED" if veto_passed else "VETO_PIPELINE"),
+            "rejection_reason": rejection_reason,
             "active_edges": active_edges_hit,
             "shadow_edges": shadow_edges_hit,
             "entry_zone": [candidate.entry_zone_low, candidate.entry_zone_high],
@@ -119,7 +144,7 @@ class ShadowRunner:
             symbol=candidate.symbol,
             direction=candidate.direction.value,
             strategy_id=candidate.strategy_id,
-            score_0_100=score_breakdown.total_score,
+            score_0_100=final_score,
             veto_status=veto_status,
             active_edge_ids=",".join(active_edges_hit),
             shadow_edge_ids=",".join(shadow_edges_hit),
@@ -127,7 +152,8 @@ class ShadowRunner:
         )
 
         logger.info(
-            f"[SHADOW MODE] Recorded shadow signal {shadow_id} for {candidate.symbol} (Score: {score_breakdown.total_score}, Veto: {veto_status}). Zero alert egress."
+            f"[SHADOW MODE] Recorded shadow signal {shadow_id} for {candidate.symbol} "
+            f"(Strategy: {candidate.strategy_id}, Score: {final_score}, Veto: {veto_status}). Zero alert egress."
         )
         return payload
 
