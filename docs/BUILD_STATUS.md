@@ -16,7 +16,7 @@
 | **Phase 3** | Feature Engine (Pure transforms, no look-ahead) | **COMPLETE** | ATR, Swings, Liquidity, Structure, VP, Funding, CVD, OBI, Regime & Tests Pass (8/8) |
 | **Phase 4** | Pure Edge Modules (32 Edges) | **COMPLETE** | E01 Spine, Feature/Risk Edges, Shadow Isolation & Tests Pass (5/5) |
 | **Phase 5** | Strategy & Regime Engine (S1 Long, S2/S3 Shadow)| **COMPLETE** | S1 Long Spine, Fail-Closed Short Abstain, S2 Shadow & Tests Pass (4/4) |
-| **Phase 6** | Hard/Soft Veto Framework (34 Hard + 15 Soft) | **PENDING** | 34 Hard + 15 Soft Veto Tests Pass |
+| **Phase 6** | Hard/Soft Veto Framework (34 Hard + 15 Soft) | **COMPLETE** | 34 Hard + 15 Soft Vetoes, Fail-Closed Engine, Governors & Tests Pass (6/6) |
 | **Phase 7** | Scoring & Calibration Engine (Caps, Isotonic) | **PENDING** | Monotonicity & NOT CALIBRATED Gate |
 | **Phase 8** | Publish, Journal & Observability (Telegram, DB) | **PENDING** | Schema Serialization & SQLite WAL |
 | **Phase 9** | CoinDCX Public Validation & Friction Engine | **PENDING** | Drift Gate & 0.1354% GST Fee Model |
