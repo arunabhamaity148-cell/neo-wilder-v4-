@@ -16,6 +16,7 @@ class AccountGovernorState:
     active_symbols: Set[str] = field(default_factory=set)
     symbol_last_signal_time: Dict[str, float] = field(default_factory=dict)
     duplicate_signal_times: Dict[str, float] = field(default_factory=dict)
+    shadow_s1_lock_times: Dict[str, float] = field(default_factory=dict)
     day_start_equity: float = 10000.0
     current_equity: float = 10000.0
     week_start_equity: float = 10000.0
@@ -43,12 +44,24 @@ class PortfolioGovernor:
         self.max_weekly_loss_pct = max_weekly_loss_pct
         self.state = AccountGovernorState()
 
-    def is_symbol_locked(self, symbol: str) -> bool:
-        """Check V-H25: symbol cooldown lock."""
-        if symbol not in self.state.symbol_last_signal_time:
+    def record_s1_shadow_candidate(
+        self, symbol: str, timestamp_monotonic: Optional[float] = None
+    ) -> None:
+        """Record an S1 candidate in SHADOW mode, enforcing a 30-min symbol-level collision lock against S2."""
+        now = timestamp_monotonic if timestamp_monotonic is not None else time.monotonic()
+        self.state.shadow_s1_lock_times[symbol] = now
+        self.state.symbol_last_signal_time[symbol] = now
+
+    def is_symbol_locked(self, symbol: str, current_time_monotonic: Optional[float] = None) -> bool:
+        """Check V-H25: symbol cooldown lock (applies to both SIGNAL publication and SHADOW S1-S2 collision)."""
+        now = current_time_monotonic if current_time_monotonic is not None else time.monotonic()
+        last_signal = self.state.symbol_last_signal_time.get(symbol)
+        last_shadow = self.state.shadow_s1_lock_times.get(symbol)
+
+        times = [t for t in (last_signal, last_shadow) if t is not None]
+        if not times:
             return False
-        last_time = self.state.symbol_last_signal_time[symbol]
-        return (time.monotonic() - last_time) < self.cooldown_sec
+        return (now - max(times)) < self.cooldown_sec
 
     def is_duplicate_signal(self, symbol: str, direction: str, strategy: str) -> bool:
         """Check V-H24: duplicate signal within 30 min."""

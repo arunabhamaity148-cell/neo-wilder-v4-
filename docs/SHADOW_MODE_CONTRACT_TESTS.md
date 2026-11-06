@@ -30,11 +30,15 @@ NEO-WILDER V4-এর শ্যাডো মোড একটি সম্পূ�
 
 `ShadowTelemetry` কাউন্টারে যথাক্রমে `coindcx_blocked_count`, `veto_blocked_count`, `score_blocked_count`, এবং `cleared_count` স্বাধীনভাবে বৃদ্ধি পায়।
 
-### ইনভেরিয়েন্ট ৪: S2 স্ট্র্যাটেজি আইসোলেশন ও কলিশন প্রিভেনশন (S2 Isolation & Collision Guard)
+### ইনভেরিয়েন্ট ৪: S2 স্ট্র্যাটেজি আইসোলেশন ও ডেডিকেটেড শ্যাডো কলিশন লক (S2 Isolation & Dedicated Collision Lock)
 - S2 স্ট্র্যাটেজি (`S2OIExhaustionStrategy`) শুধুমাত্র `ExecutionMode.SHADOW`-তে কাজ করে।
 - এটি E21 (OI Exhaustion), E15 (Spot CVD Absorption), এবং E13 (Liquidation Flush) এর উপর ভিত্তি করে ক্যান্ডিডেট তৈরি করে।
 - রেজিস্ট্রি অনুযায়ী E21, E15 এবং E13 এর স্কোর কন্ট্রিবিউশন সর্বদা ০।
-- **কলিশন প্রিভেনশন:** যদি একই সিম্বলে বিগত ৩০ মিনিটের মধ্যে S1 সিগন্যাল তৈরি হয়ে থাকে (`self.governor.is_symbol_locked(symbol)`), তবে S2 ক্যান্ডিডেট মূল্যায়ন বন্ধ থাকে।
+- **ডেডিকেটেড শ্যাডো কলিশন স্টেট:** `PortfolioGovernor`-এ `shadow_s1_lock_times` ডেডিকেটেড স্টেট যোগ করা হয়েছে। শ্যাডো মোডে S1 ক্যান্ডিডেট জেনারেট বা রেকর্ড হওয়ার সাথে সাথেই `record_s1_shadow_candidate(symbol)` কল হয়, যা ৩০ মিনিটের ($1800\text{ sec}$) সিম্বল-লেভেল লক তৈরি করে।
+- এটি কোনোভাবেই সিগন্যাল-মোডের `record_signal_published()`-এর উপর নির্ভরশীল নয়।
+- **লক ও এক্সপায়ারি আচরণ:**
+  - $t_0$-তে S1 ক্যান্ডিডেট রেকর্ড হলে তৎক্ষণাৎ একই ক্যান্ডেলের S2 এবং পরবর্তী ৩০ মিনিট পর্যন্ত S2 অবরুদ্ধ (`is_symbol_locked(symbol) == True`) থাকে।
+  - ৩০ মিনিট অতিবাহিত হওয়ার পর ($t > t_0 + 1800\text{s}$) লক স্বয়ংক্রিয়ভাবে মেয়াদোত্তীর্ণ হয় এবং S2 পুনরায় অনুমোদিত হয়।
 - S2 কখনো কোনো সক্রিয় সিগন্যালে রূপান্তরিত হয় না বা টেলিগ্রামে অ্যালার্ট পাঠায় না।
 
 ### ইনভেরিয়েন্ট ৫: ক্র্যাশ রিকভারি ও আইডেমপোটেন্সি (Crash Recovery & Idempotence)
@@ -102,6 +106,46 @@ with app_restarted.store._conn:
     cur = app_restarted.store._conn.cursor()
     cur.execute("SELECT COUNT(*) FROM shadow_signals;")
     assert cur.fetchone()[0] == len(rows)
+```
+
+### S1–S2 কলিশন লক ও ৩০-মিনিট এক্সপায়ারি প্রমাণ (`test_s1_s2_collision_lock_in_shadow_mode_and_expiry`):
+```python
+# ১. শ্যাডো মোডে S1 ক্যান্ডিডেট রেকর্ড হলে t0-তে লক কার্যকর
+t0 = 50000.0
+app.governor.record_s1_shadow_candidate(symbol, timestamp_monotonic=t0)
+assert app.governor.is_symbol_locked(symbol, current_time_monotonic=t0)
+
+# ২. ৩০ মিনিটের মধ্যে (৯০০ সেকেন্ড ও ১৭৯৫ সেকেন্ডে) S2 অবরুদ্ধ থাকে
+assert app.governor.is_symbol_locked(symbol, current_time_monotonic=t0 + 900.0)
+assert app.governor.is_symbol_locked(symbol, current_time_monotonic=t0 + 1795.0)
+
+# ৩. ৩০ মিনিট অতিবাহিত হওয়ার পর (১৮০৫ সেকেন্ডে) লক সমাপ্ত হয়
+assert not app.governor.is_symbol_locked(symbol, current_time_monotonic=t0 + 1805.0)
+
+# ৪. রানটাইমে _process_candle_event পাইপলাইনে ক্যান্ডেল প্রসেস হলেও প্রতীক লক হয়
+await app._process_candle_event(symbol, candles[-1])
+assert app.governor.is_symbol_locked(symbol)
+```
+
+### S2 ডিটারমিনিস্টিক ক্যান্ডিডেট ও অবস্টেনশন প্রমাণ (`test_s2_strategy_evaluation_and_isolation`):
+```python
+# ১. E21, E15, E13 পাস করলে ডিটারমিনিস্টিক ভ্যালিড LONG ক্যান্ডিডেট তৈরি হয়
+candidate = s2.generate_candidate(ctx, edge_results)
+assert candidate is not None
+assert candidate.strategy_id == "S2_OI_EXHAUSTION"
+assert candidate.direction == Direction.LONG
+assert candidate.setup_edge_id == "E21"
+assert candidate.net_rr >= 1.50
+assert candidate.stop_loss < candidate.reference_price < candidate.tp1
+
+# ২. যেকোনো ম্যান্ডেটরি এজ মিসিং বা ফেইল করলে নিশ্চিতভাবে ABSTAIN (None)
+assert s2.generate_candidate(ctx, edge_results={}) is None
+assert s2.generate_candidate(ctx, {"E15": ..., "E13": ...}) is None # E21 missing -> None
+assert s2.generate_candidate(ctx, res_e21_failed) is None          # E21 failed -> None
+assert s2.generate_candidate(ctx, {"E21": ..., "E13": ...}) is None # E15 missing -> None
+assert s2.generate_candidate(ctx, res_e15_failed) is None          # E15 failed -> None
+assert s2.generate_candidate(ctx, {"E21": ..., "E15": ...}) is None # E13 missing -> None
+assert s2.generate_candidate(ctx, res_e13_failed) is None          # E13 failed -> None
 ```
 
 ---

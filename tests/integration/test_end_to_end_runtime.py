@@ -514,22 +514,153 @@ async def test_s2_strategy_evaluation_and_isolation():
         swings=swings,
     )
 
-    # If mandatory edges E21, E15, E13 are missing or failed: must return None (ABSTAIN)
-    assert s2.generate_candidate(ctx, edge_results={}) is None
-
-    # When all 3 mandatory edges pass:
+    # Base valid edges: E21 (OI Exhaustion) + E15 (Spot CVD absorption) + E13 (Liquidation Flush)
     edge_results = {
         "E21": EdgeResult(edge_id="E21", passed=True, confidence=0.8, direction=Direction.LONG),
         "E15": EdgeResult(edge_id="E15", passed=True, confidence=0.8, direction=Direction.LONG),
         "E13": EdgeResult(edge_id="E13", passed=True, confidence=0.8, direction=Direction.LONG),
     }
 
+    # 1. Deterministic valid candidate generation: MUST NOT be None
     candidate = s2.generate_candidate(ctx, edge_results)
-    if candidate:
-        assert candidate.strategy_id == "S2_OI_EXHAUSTION"
-        assert candidate.direction == Direction.LONG
-        assert candidate.setup_edge_id == "E21"
-        assert candidate.net_rr >= 1.50
+    assert candidate is not None, (
+        "S2 must deterministically generate candidate when E21, E15, E13 pass"
+    )
+    assert candidate.strategy_id == "S2_OI_EXHAUSTION"
+    assert candidate.direction == Direction.LONG
+    assert candidate.setup_edge_id == "E21"
+    assert candidate.net_rr >= 1.50
+    assert candidate.stop_loss < candidate.reference_price
+    assert candidate.tp1 > candidate.reference_price
+
+    # 2. Deterministic Abstentions: If any mandatory edge is missing or failed, MUST return None
+    # Empty edge results
+    assert s2.generate_candidate(ctx, edge_results={}) is None
+
+    # E21 missing
+    assert (
+        s2.generate_candidate(ctx, {"E15": edge_results["E15"], "E13": edge_results["E13"]}) is None
+    )
+    # E21 failed
+    res_e21_failed = dict(edge_results)
+    res_e21_failed["E21"] = EdgeResult.abstain("E21")
+    assert s2.generate_candidate(ctx, res_e21_failed) is None
+
+    # E15 missing
+    assert (
+        s2.generate_candidate(ctx, {"E21": edge_results["E21"], "E13": edge_results["E13"]}) is None
+    )
+    # E15 failed
+    res_e15_failed = dict(edge_results)
+    res_e15_failed["E15"] = EdgeResult.abstain("E15")
+    assert s2.generate_candidate(ctx, res_e15_failed) is None
+
+    # E13 missing
+    assert (
+        s2.generate_candidate(ctx, {"E21": edge_results["E21"], "E15": edge_results["E15"]}) is None
+    )
+    # E13 failed
+    res_e13_failed = dict(edge_results)
+    res_e13_failed["E13"] = EdgeResult.abstain("E13")
+    assert s2.generate_candidate(ctx, res_e13_failed) is None
+
+    # Missing swing highs above close (no structural target -> gross_rr < 1.60)
+    ctx_no_highs = FeatureContext(
+        symbol="BTCUSDT",
+        timeframe="15m",
+        now_ms=1700000000000,
+        candles=candles,
+        atr_result=atr,
+        swings=[],  # No swing highs
+    )
+    assert s2.generate_candidate(ctx_no_highs, edge_results) is None
+
+
+@pytest.mark.asyncio
+async def test_s1_s2_collision_lock_in_shadow_mode_and_expiry(tmp_path: Path, monkeypatch):
+    """Prove that an S1 candidate in SHADOW mode establishes a symbol-level 30-min collision lock,
+
+    that S2 is blocked for 30 minutes after S1, and becomes eligible after expiry.
+    """
+    db_file = tmp_path / "shadow_collision.db"
+    monkeypatch.setenv("DB_PATH", str(db_file))
+
+    app = NeoWilderApplication(mode=ExecutionMode.SHADOW)
+    assert app.mode == ExecutionMode.SHADOW
+
+    symbol = "BTCUSDT"
+    # Initial state: symbol is not locked
+    assert not app.governor.is_symbol_locked(symbol)
+
+    # 1. Simulate an S1 candidate recorded in SHADOW mode at t0
+    t0 = 50000.0
+    app.governor.record_s1_shadow_candidate(symbol, timestamp_monotonic=t0)
+
+    # 2. Immediately at t0: symbol MUST be locked
+    assert app.governor.is_symbol_locked(symbol, current_time_monotonic=t0)
+
+    # 3. Within 30 minutes (cooldown_sec = 1800.0):
+    # At t0 + 15m (900s) -> STILL LOCKED
+    assert app.governor.is_symbol_locked(symbol, current_time_monotonic=t0 + 900.0)
+    # At t0 + 29.9m (1795s) -> STILL LOCKED
+    assert app.governor.is_symbol_locked(symbol, current_time_monotonic=t0 + 1795.0)
+
+    # 4. After 30 minutes (cooldown expired):
+    # At t0 + 30.1m (1805s) -> UNLOCKED (S2 becomes eligible)
+    assert not app.governor.is_symbol_locked(symbol, current_time_monotonic=t0 + 1805.0)
+
+    # 5. Full runtime pipeline test:
+    # S1 candidate recorded through _process_candle_event locks the symbol in SHADOW mode
+    app.binance_rest.get_server_time_ms = AsyncMock(return_value=1700000000000 + 40 * 900000)
+    app.universe_manager.initialize_universe = AsyncMock(return_value=[symbol])
+    telegram_mock = AsyncMock()
+    app.publisher.publish = telegram_mock
+
+    await app.start()
+    assert app.ws_client is not None
+    app.ws_client._connected = True
+    app.ws_client._last_message_ts = time.monotonic()
+
+    now_ms = 1700000000000 + 40 * 900000
+    funding_snap = FundingSnapshot(
+        symbol=symbol,
+        timestamp_ms=now_ms,
+        mark_price=69505.0,
+        index_price=69500.0,
+        funding_rate=0.0001,
+        next_funding_time_ms=now_ms + 14400000,
+    )
+    app._funding_cache[symbol] = FundingEngine.evaluate(funding_snap, now_ms)
+    app._oi_history[symbol] = [
+        OISnapshot(symbol=symbol, timestamp_ms=now_ms - 300000, open_interest=50000.0),
+        OISnapshot(symbol=symbol, timestamp_ms=now_ms, open_interest=49000.0),
+    ]
+
+    valid_quote = CoinDCXQuote(
+        pair="BTCUSDT",
+        timestamp_ms=now_ms,
+        price=69510.0,
+        mark_price=69505.0,
+        funding_rate=0.0001,
+        spread_bps=1.5,
+        top10_depth_usd=250000.0,
+    )
+    app.coindcx_client.get_validation_quote = AsyncMock(return_value=valid_quote)
+
+    candles = _generate_s1_sweep_candles()
+    for c in candles[:-1]:
+        await app._process_candle_event(symbol, c)
+
+    # Process S1 sweep candle
+    await app._process_candle_event(symbol, candles[-1])
+    await app.store._write_queue.join()
+
+    # Invariant: S1 candidate was recorded in SHADOW mode
+    assert app.shadow_runner.telemetry.total_shadow_candidates >= 1
+    # Invariant: Symbol is now locked by S1 in SHADOW mode, blocking any concurrent or immediate S2 setup
+    assert app.governor.is_symbol_locked(symbol)
+
+    await app.stop()
 
 
 @pytest.mark.asyncio

@@ -352,6 +352,8 @@ class NeoWilderApplication:
             s1_cand = self.s1_strategy.generate_candidate(ctx, edge_results)
             if s1_cand:
                 candidates_to_process.append(s1_cand)
+                if self.mode == ExecutionMode.SHADOW:
+                    self.governor.record_s1_shadow_candidate(symbol)
 
             if self.mode == ExecutionMode.SHADOW:
                 s2_cand = self.s2_strategy.generate_candidate(ctx, edge_results)
@@ -359,6 +361,10 @@ class NeoWilderApplication:
                     # S2 collision invariant: cannot fire within 30 min of S1 on the same symbol
                     if not self.governor.is_symbol_locked(symbol):
                         candidates_to_process.append(s2_cand)
+                    else:
+                        logger.info(
+                            f"S2 candidate on {symbol} blocked by S1 collision lock (cooldown active)."
+                        )
 
             if not candidates_to_process:
                 return
@@ -466,6 +472,9 @@ class NeoWilderApplication:
 
                 # 9. Dispatch based on mode
                 if self.mode == ExecutionMode.SHADOW:
+                    if candidate.strategy_id == "S1_SWEEP_RECLAIM":
+                        self.governor.record_s1_shadow_candidate(symbol)
+
                     if self.shadow_runner is not None:
                         await self.shadow_runner.handle_shadow_candidate(
                             candidate=candidate,
