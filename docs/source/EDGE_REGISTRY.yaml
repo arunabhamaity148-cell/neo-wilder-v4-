@@ -1,0 +1,39 @@
+version: 4.0.0
+generated: "2026-11-05"
+conventions:
+  status: [ACTIVE, SHADOW, EXPERIMENTAL, REJECT]
+  evidence_status: [ESTABLISHED, PROMISING, SPECULATIVE, NOT_PROVEN, DATA_SOURCE_NOT_VERIFIED]
+  archetype: [SETUP, CONFIRM, FEATURE, TARGET, RISK, REGIME, MODIFIER, FILTER, EXECUTION]
+edges:
+- {id: E01, legacy: "EDGE_1", src: "strategies/sweep_reclaim_v1.py:60-240", name: Liquidity Sweep and Reclaim, archetype: SETUP, direction: BOTH, status: ACTIVE, evidence: PROMISING}
+- {id: E02, legacy: "4-stage sweep", src: "features/sweep_detector.py:49", name: Four-Stage Sweep Confirmation, archetype: CONFIRM, direction: BOTH, status: SHADOW, evidence: NOT_PROVEN}
+- {id: E03, legacy: "calibration x1", src: "scoring/calibration.py:49", name: Sweep Depth normalised by ATR, archetype: FEATURE, direction: BOTH, status: ACTIVE, evidence: PROMISING}
+- {id: E04, legacy: "liquidity pools", src: "features/liquidity_pools.py:51", name: Liquidity Pool EQH-EQL, archetype: FEATURE, direction: BOTH, status: ACTIVE, evidence: PROMISING}
+- {id: E05, legacy: "structure", src: "features/structure.py:42", name: BOS and CHoCH, archetype: CONFIRM, direction: BOTH, status: SHADOW, evidence: PROMISING}
+- {id: E06, legacy: "zones", src: "features/zones.py:38", name: Supply Demand Zone Confluence, archetype: CONFIRM, direction: BOTH, status: SHADOW, evidence: SPECULATIVE}
+- {id: E07, legacy: "volume profile", src: "features/volume_profile.py:40", name: Volume Profile POC VAH VAL, archetype: TARGET, direction: BOTH, status: ACTIVE, evidence: PROMISING}
+- {id: E08, legacy: "anchored vwap", src: "features/anchored_vwap.py:13", name: Anchored VWAP, archetype: CONFIRM, direction: BOTH, status: EXPERIMENTAL, evidence: SPECULATIVE}
+- {id: E09, legacy: "poor high low", src: "features/poor_hl_fvg.py:22", name: Poor High Poor Low, archetype: CONFIRM, direction: BOTH, status: EXPERIMENTAL, evidence: SPECULATIVE}
+- {id: E10, legacy: "fvg", src: "features/poor_hl_fvg.py:69", name: Fair Value Gap, archetype: TARGET, direction: BOTH, status: SHADOW, evidence: NOT_PROVEN}
+- {id: E11, legacy: "volatility", src: "features/volatility.py:59", name: ATR Realised Volatility, archetype: FEATURE, direction: BOTH, status: ACTIVE, evidence: ESTABLISHED}
+- {id: E12, legacy: "dynamic sl buffer", src: "strategies/sweep_reclaim_v1.py:34", name: Dynamic Stop Buffer, archetype: RISK, direction: BOTH, status: ACTIVE, evidence: PROMISING}
+- {id: E13, legacy: "z_liq", src: "features/liq_heatmap.py:16", name: Liquidation Burst Z-score, archetype: CONFIRM, direction: BOTH, status: SHADOW, evidence: NOT_PROVEN}
+- {id: E14, legacy: "liq clusters", src: "features/liq_heatmap.py:68", name: Liquidation Cluster Proximity, archetype: CONFIRM, direction: BOTH, status: EXPERIMENTAL, evidence: DATA_SOURCE_NOT_VERIFIED}
+- {id: E15, legacy: "cvd turn", src: "features/orderflow.py:58", name: CVD Turn, archetype: CONFIRM, direction: BOTH, status: SHADOW, evidence: PROMISING}
+- {id: E16, legacy: "obi", src: "features/orderflow.py:15", name: Order Book Imbalance top10, archetype: CONFIRM, direction: BOTH, status: SHADOW, evidence: NOT_PROVEN}
+- {id: E17, legacy: "book density", src: "features/book_density.py:17,44", name: Book Density Absorption, archetype: CONFIRM, direction: BOTH, status: SHADOW, evidence: NOT_PROVEN}
+- {id: E18, legacy: "microprice", src: "features/micro_price.py:15", name: Microprice, archetype: EXECUTION, direction: BOTH, status: REJECT, evidence: UNSUPPORTED_FOR_HORIZON}
+- {id: E19, legacy: "microbar", src: "features/microbar.py:16", name: Microbar Volume Clock, archetype: EXECUTION, direction: BOTH, status: REJECT, evidence: UNSUPPORTED_FOR_HORIZON}
+- {id: E20, legacy: "hawkes", src: "features/hawkes.py:33", name: Hawkes Trade Intensity, archetype: CONFIRM, direction: BOTH, status: SHADOW, evidence: NOT_PROVEN}
+- {id: E21, legacy: "EDGE_6", src: "strategies/advanced_edges.py:159", name: OI Exhaustion Reversal, archetype: SETUP, direction: LONG, status: SHADOW, evidence: PROMISING}
+- {id: E22, legacy: "EDGE_7", src: "strategies/advanced_edges.py:218", name: Spot-Led Basis Divergence, archetype: CONFIRM, direction: BOTH, status: EXPERIMENTAL, evidence: PROMISING}
+- {id: E23, legacy: "funding context", src: "features/funding_context.py:85", name: Funding Context, archetype: RISK, direction: BOTH, status: ACTIVE, evidence: ESTABLISHED}
+- {id: E24, legacy: "mark index div", src: "features/funding_context.py:60", name: Mark Index Divergence, archetype: RISK, direction: BOTH, status: ACTIVE, evidence: ESTABLISHED}
+- {id: E25, legacy: "variance ratio", src: "strategies/router.py:34 / regime/vr_tracker.py", name: Variance Ratio Regime, archetype: REGIME, direction: BOTH, status: SHADOW, evidence: ESTABLISHED_METHOD_NOT_CALIBRATED}
+- {id: E26, legacy: "gex", src: "cold/deribit.py:93-161", name: GEX and Gamma Flip, archetype: REGIME, direction: BOTH, status: REJECT, evidence: DATA_SOURCE_NOT_VERIFIED}
+- {id: E27, legacy: "session", src: "validation/walk_forward.py:100", name: Session Classification, archetype: MODIFIER, direction: BOTH, status: EXPERIMENTAL, evidence: PROMISING}
+- {id: E28, legacy: "expiry engine", src: "journal/expiry_engine.py:32-355", name: Signal Expiry Engine, archetype: RISK, direction: BOTH, status: ACTIVE, evidence: ESTABLISHED}
+- {id: X01, legacy: null, src: "new", name: BTC Directional Conflict, archetype: MODIFIER, direction: BOTH, status: ACTIVE_SOFT_VETO, evidence: PROMISING}
+- {id: X02, legacy: null, src: "new", name: Relative Volume Gate, archetype: FILTER, direction: BOTH, status: ACTIVE, evidence: PROMISING}
+- {id: X03, legacy: null, src: "new", name: CoinDCX Spread Liquidity Gate, archetype: FILTER, direction: BOTH, status: ACTIVE, evidence: ESTABLISHED}
+- {id: X04, legacy: null, src: "new", name: Late Entry Suppression, archetype: FILTER, direction: BOTH, status: ACTIVE, evidence: PROMISING}
