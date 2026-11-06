@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 from neo_wilder.data.store import DatabaseStore
+from neo_wilder.domain.enums import Direction
 from neo_wilder.domain.models import Candle
 from neo_wilder.publish.schema import Signal
 
@@ -33,6 +34,72 @@ class OutcomeResolver:
         self.max_entry_window_bars = max_entry_window_bars
         # signal_id -> SignalTracker
         self._active_trackers: Dict[str, SignalTracker] = {}
+
+    def reload_unresolved_signals(self):
+        """Query unresolved signals from SQLite and reconstruct active trackers upon restart."""
+        try:
+            records = self.store.fetch_unresolved_signals()
+            loaded = 0
+            for r in records:
+                sig_id = r["signal_id"]
+                if sig_id not in self._active_trackers:
+                    dir_enum = (
+                        Direction.LONG
+                        if r.get("direction", "LONG").upper() == "LONG"
+                        else Direction.SHORT
+                    )
+                    signal_obj = Signal(
+                        signal_id=sig_id,
+                        created_at_utc=r.get("created_at_utc", ""),
+                        expires_at_utc=r.get("expires_at_utc", ""),
+                        symbol_binance=r.get("symbol_binance", ""),
+                        symbol_coindcx=r.get("symbol_coindcx", ""),
+                        direction=dir_enum,
+                        strategy_id=r.get("strategy_id", "S1_SWEEP_RECLAIM"),
+                        active_edge_ids=r.get("active_edge_ids", "").split(","),
+                        confirming_edge_ids=(
+                            r.get("confirming_edge_ids", "").split(",")
+                            if r.get("confirming_edge_ids")
+                            else []
+                        ),
+                        reference_price=float(r.get("reference_price", 0.0)),
+                        coindcx_price=float(r.get("coindcx_price", 0.0)),
+                        coindcx_spread_bps=float(r.get("coindcx_spread_bps", 0.0)),
+                        coindcx_top10_depth_usd=float(r.get("coindcx_top10_depth_usd", 0.0)),
+                        entry_zone_low=float(r.get("entry_zone_low", 0.0)),
+                        entry_zone_high=float(r.get("entry_zone_high", 0.0)),
+                        stop_loss=float(r.get("stop_loss", 0.0)),
+                        tp1=float(r.get("tp1", 0.0)),
+                        tp2=float(r["tp2"]) if r.get("tp2") is not None else None,
+                        gross_rr=float(r.get("gross_rr", 0.0)),
+                        net_rr=float(r.get("net_rr", 0.0)),
+                        composite_score=int(r.get("composite_score", 0)),
+                        calibrated_probability=r.get("calibrated_probability"),
+                        risk_tier=r.get("risk_tier", "NORMAL"),
+                        regime=r.get("regime", "NEUTRAL"),
+                        friction_round_trip_pct=float(r.get("friction_round_trip_pct", 0.1354)),
+                        intended_clip_usd=float(r.get("intended_clip_usd", 500.0)),
+                        effective_leverage=float(r.get("effective_leverage", 1.0)),
+                        funding_pct_est=float(r.get("funding_pct_est", 0.0)),
+                        btc_context=r.get("btc_context", "NEUTRAL"),
+                        veto_status=r.get("veto_status", "CLEARED"),
+                        soft_veto_list=(
+                            r.get("soft_veto_list", "").split(",")
+                            if r.get("soft_veto_list")
+                            else []
+                        ),
+                        max_entry_drift_pct=float(r.get("max_entry_drift_pct", 0.35)),
+                        invalidation_conditions=[r.get("invalidation_conditions", "")],
+                        one_paragraph_thesis=r.get("one_paragraph_thesis", ""),
+                    )
+                    self.track_signal(signal_obj)
+                    loaded += 1
+            if loaded > 0:
+                logger.info(
+                    f"Reloaded {loaded} unresolved signals from SQLite for outcome tracking."
+                )
+        except Exception as e:
+            logger.error(f"Failed to reload unresolved signals on restart: {e}", exc_info=True)
 
     def track_signal(
         self, signal: Signal, is_filled: bool = False, fill_price: Optional[float] = None

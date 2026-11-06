@@ -12,7 +12,7 @@ import psutil
 
 from neo_wilder.clock import SystemClock
 from neo_wilder.data.integrity import DataIntegrityAuditor
-from neo_wilder.domain.enums import HardVetoReason, RegimeState, VetoSeverity
+from neo_wilder.domain.enums import Direction, HardVetoReason, RegimeState, VetoSeverity
 from neo_wilder.domain.models import Candidate, CoinDCXQuote, VetoResult
 from neo_wilder.edges.base import FeatureContext
 from neo_wilder.vetoes.governor import PortfolioGovernor
@@ -35,6 +35,7 @@ class HardVetoEvaluator:
         is_news_window: bool = False,
         is_news_outage: bool = False,
         calibration_valid: bool = False,
+        cluster_risk_r: float = 0.0,
     ) -> VetoResult:
         try:
             # -------------------------------------------------------------
@@ -104,8 +105,8 @@ class HardVetoEvaluator:
                         severity=VetoSeverity.CRITICAL.value,
                         details=f"Process RSS {rss_mb:.1f}MB exceeds 300MB limit",
                     )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"psutil memory check exception: {e}")
 
             if governor.state.operator_kill_switch:
                 return VetoResult(
@@ -253,17 +254,52 @@ class HardVetoEvaluator:
             # -------------------------------------------------------------
             # Stage 6: Risk Geometry (V-H19..V-H23)
             # -------------------------------------------------------------
+            atr = ctx.atr_result.atr if ctx.atr_result else 1.0
+
+            # V-H19: Entry zone inversion, excessive width (> 0.5 ATR), or entry outside SL..TP bounds
             if candidate.entry_zone_low > candidate.entry_zone_high:
                 return VetoResult(
                     False,
                     blocking_id="V-H19",
                     reason_code=HardVetoReason.ENTRY_GEOMETRY_INVALID.value,
                     severity=VetoSeverity.CRITICAL.value,
-                    details="Entry zone is inverted",
+                    details="Entry zone is inverted (low > high)",
                 )
 
+            zone_width = candidate.entry_zone_high - candidate.entry_zone_low
+            if zone_width > (0.50 * atr):
+                return VetoResult(
+                    False,
+                    blocking_id="V-H19",
+                    reason_code=HardVetoReason.ENTRY_GEOMETRY_INVALID.value,
+                    severity=VetoSeverity.CRITICAL.value,
+                    details=f"Entry zone width {zone_width:.2f} > 0.50 ATR ({0.50 * atr:.2f})",
+                )
+
+            if candidate.direction == Direction.LONG:
+                if candidate.stop_loss >= candidate.entry_zone_low or (
+                    candidate.tp1 and candidate.entry_zone_high >= candidate.tp1
+                ):
+                    return VetoResult(
+                        False,
+                        blocking_id="V-H19",
+                        reason_code=HardVetoReason.ENTRY_GEOMETRY_INVALID.value,
+                        severity=VetoSeverity.CRITICAL.value,
+                        details="Long entry zone lies outside stop loss and target bounds",
+                    )
+            elif candidate.direction == Direction.SHORT:
+                if candidate.stop_loss <= candidate.entry_zone_high or (
+                    candidate.tp1 and candidate.entry_zone_low <= candidate.tp1
+                ):
+                    return VetoResult(
+                        False,
+                        blocking_id="V-H19",
+                        reason_code=HardVetoReason.ENTRY_GEOMETRY_INVALID.value,
+                        severity=VetoSeverity.CRITICAL.value,
+                        details="Short entry zone lies outside stop loss and target bounds",
+                    )
+
             stop_dist = candidate.reference_price - candidate.stop_loss
-            atr = ctx.atr_result.atr if ctx.atr_result else 1.0
             min_sl_dist = max(0.0065 * candidate.reference_price, 0.50 * atr)
             max_sl_dist = 4.50 * atr
 
@@ -308,13 +344,26 @@ class HardVetoEvaluator:
             # -------------------------------------------------------------
             # Stage 7: Exposure & Loss Caps (V-H26..V-H30)
             # -------------------------------------------------------------
-            if governor.concurrent_count >= governor.max_concurrent:
+            if (
+                governor.concurrent_count >= governor.max_concurrent
+                or governor.total_open_risk_pct > governor.max_open_risk_pct
+            ):
                 return VetoResult(
                     False,
                     blocking_id="V-H26",
                     reason_code=HardVetoReason.PORTFOLIO_HEAT.value,
                     severity=VetoSeverity.HIGH.value,
-                    details=f"Concurrent positions {governor.concurrent_count} >= max {governor.max_concurrent}",
+                    details=f"Portfolio heat exceeded: concurrent {governor.concurrent_count} >= {governor.max_concurrent} or open risk {governor.total_open_risk_pct:.1f}% > {governor.max_open_risk_pct:.1f}%",
+                )
+
+            # V-H27: Cluster effective risk > 2.0R
+            if cluster_risk_r > 2.0:
+                return VetoResult(
+                    False,
+                    blocking_id="V-H27",
+                    reason_code=HardVetoReason.CLUSTER_HEAT.value,
+                    severity=VetoSeverity.HIGH.value,
+                    details=f"Cluster effective risk {cluster_risk_r:.2f}R > 2.0R",
                 )
 
             if governor.is_daily_loss_breached():

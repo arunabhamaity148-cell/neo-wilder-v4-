@@ -96,7 +96,7 @@ class CoinDCXExecutionValidator:
         if quote is None or quote.price <= 0.0:
             return ValidationResult(
                 is_valid=False,
-                veto_id="V_H31",
+                veto_id="V-H31",
                 reason="CoinDCX live quote is unavailable or non-positive (fail-closed)",
             )
 
@@ -107,7 +107,7 @@ class CoinDCXExecutionValidator:
         if drift_pct > self.max_drift_pct:
             return ValidationResult(
                 is_valid=False,
-                veto_id="V_H32",
+                veto_id="V-H32",
                 reason=f"CoinDCX price drift ({drift_pct:.3f}%) exceeds limit {self.max_drift_pct}%",
                 drift_pct=drift_pct,
                 fee_pct=fee_pct,
@@ -115,14 +115,14 @@ class CoinDCXExecutionValidator:
                 total_friction_pct=total_friction,
             )
 
-        # Gate 3: Bid-ask spread (V-H33)
+        # Gate 3: Bid-ask spread (V-H12)
         max_spread = (
             self.max_spread_major if symbol_tier == SymbolTier.MAJOR else self.max_spread_alt
         )
         if quote.spread_bps > max_spread:
             return ValidationResult(
                 is_valid=False,
-                veto_id="V_H33",
+                veto_id="V-H12",
                 reason=f"CoinDCX spread ({quote.spread_bps:.1f} bps) exceeds {max_spread:.1f} bps",
                 drift_pct=drift_pct,
                 fee_pct=fee_pct,
@@ -130,12 +130,12 @@ class CoinDCXExecutionValidator:
                 total_friction_pct=total_friction,
             )
 
-        # Gate 4: Orderbook depth (V-H34)
+        # Gate 4: Orderbook depth (V-H13)
         required_depth = clip * DEPTH_CLIP_MULTIPLIER
         if quote.top10_depth_usd < required_depth:
             return ValidationResult(
                 is_valid=False,
-                veto_id="V_H34",
+                veto_id="V-H13",
                 reason=f"CoinDCX top-10 depth (${quote.top10_depth_usd:,.0f}) < required ${required_depth:,.0f} (20x clip)",
                 drift_pct=drift_pct,
                 fee_pct=fee_pct,
@@ -150,7 +150,7 @@ class CoinDCXExecutionValidator:
             if current_progress > LATE_ENTRY_MAX_PROGRESS:
                 return ValidationResult(
                     is_valid=False,
-                    veto_id="V_H30",  # Stale/late entry geometry
+                    veto_id="V-S10_ESCALATED",  # Stale/late entry geometry
                     reason=f"CoinDCX price already advanced {current_progress * 100:.1f}% toward TP1 (max {LATE_ENTRY_MAX_PROGRESS * 100:.0f}%)",
                     drift_pct=drift_pct,
                     fee_pct=fee_pct,

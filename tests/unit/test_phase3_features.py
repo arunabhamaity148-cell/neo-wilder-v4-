@@ -163,3 +163,60 @@ def test_regime_classifier():
     # Test liquidity stress gate
     out_stress = classifier.evaluate(candles, atr_bps=450.0)
     assert out_stress.state == RegimeState.LIQUIDITY_STRESS
+
+
+def test_swing_detection_no_future_leak():
+    """Verify SwingDetector strictly respects causal right_bars confirmation (no future peek)."""
+    candles = _generate_synthetic_candles(60)
+    left_bars, right_bars = 3, 2
+
+    # Step-by-step rolling evaluation
+    for t in range(20, len(candles)):
+        prefix = candles[:t]
+        swings = SwingDetector.find_swings(prefix, left_bars=left_bars, right_bars=right_bars)
+        for s in swings:
+            # A swing pivot at index i cannot be confirmed until bar i + right_bars
+            assert s.index <= t - 1 - right_bars, (
+                f"Look-ahead detected: swing at index {s.index} confirmed on bar {t - 1} "
+                f"with right_bars={right_bars}"
+            )
+
+
+def test_swing_detection_prefix_invariance():
+    """Verify that adding future bars does not mutate already confirmed historical swings."""
+    candles = _generate_synthetic_candles(60)
+    left_bars, right_bars = 3, 1
+
+    swings_at_40 = SwingDetector.find_swings(
+        candles[:40], left_bars=left_bars, right_bars=right_bars
+    )
+    swings_at_60 = SwingDetector.find_swings(
+        candles[:60], left_bars=left_bars, right_bars=right_bars
+    )
+
+    # All confirmed swings in the safe prefix (<= 40 - 1 - right_bars = 38) must match exactly
+    safe_cutoff = 40 - 1 - right_bars
+    swings_40_safe = [s for s in swings_at_40 if s.index <= safe_cutoff]
+    swings_60_in_prefix = [s for s in swings_at_60 if s.index <= safe_cutoff]
+
+    assert len(swings_40_safe) == len(swings_60_in_prefix)
+    for s1, s2 in zip(swings_40_safe, swings_60_in_prefix, strict=True):
+        assert s1.index == s2.index
+        assert s1.pivot_type == s2.pivot_type
+        assert abs(s1.price - s2.price) < 1e-6
+
+
+def test_rsi_divergence_engine():
+    """Verify RSIEngine calculates Wilder RSI and detects structural divergence."""
+    from neo_wilder.features.rsi import RSIEngine
+
+    candles = _generate_synthetic_candles(50)
+    swings = SwingDetector.find_swings(candles)
+    rsi_res = RSIEngine.compute(candles, swings)
+
+    assert rsi_res is not None
+    assert 0.0 <= rsi_res.rsi <= 100.0
+    assert len(rsi_res.rsi_series) == len(candles) - 14
+    assert abs(rsi_res.rsi - rsi_res.rsi_series[-1]) < 1e-6
+    assert isinstance(rsi_res.has_bearish_divergence, bool)
+    assert isinstance(rsi_res.has_bullish_divergence, bool)

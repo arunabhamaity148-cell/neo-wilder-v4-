@@ -292,12 +292,16 @@ class DatabaseStore:
                     batch.append(self._write_queue.get_nowait())
 
                 if batch and self._conn:
-                    with self._conn:
-                        for sql, params in batch:
-                            self._conn.execute(sql, params)
-                    for _ in batch:
-                        self._write_queue.task_done()
-                    batch.clear()
+                    try:
+                        with self._conn:
+                            for sql, params in batch:
+                                self._conn.execute(sql, params)
+                    except Exception as e:
+                        logger.error(f"Error executing SQLite batch write: {e}", exc_info=True)
+                    finally:
+                        for _ in batch:
+                            self._write_queue.task_done()
+                        batch.clear()
 
             except asyncio.CancelledError:
                 break
@@ -364,3 +368,28 @@ class DatabaseStore:
             return [dict(r) for r in rows]
         finally:
             conn.close()
+
+    def fetch_unresolved_signals(self) -> List[Dict[str, Any]]:
+        """Fetch signals from database that do not yet have a terminal resolved outcome."""
+        conn = sqlite3.connect(str(self.db_path), timeout=5.0)
+        try:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT s.*
+                FROM signals s
+                LEFT JOIN outcomes o ON s.signal_id = o.signal_id
+                WHERE o.signal_id IS NULL OR o.resolved_status IN ('PENDING', 'ACTIVE');
+                """
+            )
+            rows = cursor.fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            conn.close()
+
+    async def fetch_recent_candles_async(
+        self, symbol: str, timeframe: str, limit: int = 100
+    ) -> List[Candle]:
+        """Asynchronously query recent candles without blocking the event loop."""
+        return await asyncio.to_thread(self.fetch_recent_candles, symbol, timeframe, limit)

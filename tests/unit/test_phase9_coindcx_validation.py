@@ -52,7 +52,7 @@ def test_coindcx_validator_quote_unavailable():
         quote=None,
     )
     assert res_none.is_valid is False
-    assert res_none.veto_id == "V_H31"
+    assert res_none.veto_id == "V-H31"
 
     # Zero price quote
     bad_quote = CoinDCXQuote(
@@ -72,7 +72,7 @@ def test_coindcx_validator_quote_unavailable():
         quote=bad_quote,
     )
     assert res_zero.is_valid is False
-    assert res_zero.veto_id == "V_H31"
+    assert res_zero.veto_id == "V-H31"
 
 
 def test_coindcx_validator_price_drift():
@@ -97,7 +97,7 @@ def test_coindcx_validator_price_drift():
         quote=drift_quote,
     )
     assert res.is_valid is False
-    assert res.veto_id == "V_H32"
+    assert res.veto_id == "V-H32"
     assert res.drift_pct == pytest.approx(0.40, rel=1e-2)
 
 
@@ -124,7 +124,7 @@ def test_coindcx_validator_spread_limits():
         symbol_tier=SymbolTier.MAJOR,
     )
     assert res_major.is_valid is False
-    assert res_major.veto_id == "V_H33"
+    assert res_major.veto_id == "V-H12"
 
     # Spread 15 bps on ALT (limit 25) -> should pass spread gate
     res_alt = validator.validate_candidate(
@@ -139,7 +139,7 @@ def test_coindcx_validator_spread_limits():
 
 
 def test_coindcx_validator_depth_and_friction():
-    """Verify V-H34 depth gate and 0.1354% round-trip friction calculation."""
+    """Verify V-H13 depth gate and 0.1354% round-trip friction calculation."""
     validator = CoinDCXExecutionValidator(default_clip_usd=1000.0)
 
     # Top 10 depth only $15,000 (< 20 x $1000 = $20,000 required)
@@ -161,7 +161,7 @@ def test_coindcx_validator_depth_and_friction():
         symbol_tier=SymbolTier.MAJOR,
     )
     assert res_shallow.is_valid is False
-    assert res_shallow.veto_id == "V_H34"
+    assert res_shallow.veto_id == "V-H13"
 
     # Good depth $100,000 -> passes all gates
     good_quote = CoinDCXQuote(
@@ -186,3 +186,22 @@ def test_coindcx_validator_depth_and_friction():
     assert res_good.fee_pct == pytest.approx(0.1180, rel=1e-3)
     # Total baseline friction is ~ 0.1354%
     assert res_good.total_friction_pct == pytest.approx(0.1354, rel=0.1)
+
+
+@pytest.mark.asyncio
+async def test_coindcx_rate_limiter():
+    """Verify CoinDCXRateLimiter enforces a maximum request rate and bounded timing."""
+    import time
+
+    from neo_wilder.data.rest_coindcx import CoinDCXRateLimiter
+
+    limiter = CoinDCXRateLimiter(max_rate_rps=10.0, burst=2.0)
+    start = time.monotonic()
+
+    # Acquire 5 tokens: initial 2 tokens available immediately from burst, remaining 3 spaced at 0.1s
+    for _ in range(5):
+        await limiter.acquire()
+
+    elapsed = time.monotonic() - start
+    # At 10 req/s, 5 requests with burst of 2 should take >= 0.25s
+    assert elapsed >= 0.20

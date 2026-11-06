@@ -41,6 +41,9 @@ class BinanceWebSocketClient:
         self.kline_5m_buffers: Dict[str, Deque[Candle]] = {
             s.upper(): deque(maxlen=500) for s in self.symbols
         }
+        self.kline_15m_buffers: Dict[str, Deque[Candle]] = {
+            s.upper(): deque(maxlen=500) for s in self.symbols
+        }
         self.liquidation_buffer: Deque[Dict] = deque(maxlen=1000)
 
         # Connection state
@@ -69,6 +72,7 @@ class BinanceWebSocketClient:
         for s in self.symbols:
             streams.append(f"{s}@aggTrade")
             streams.append(f"{s}@kline_5m")
+            streams.append(f"{s}@kline_15m")
             streams.append(f"{s}@depth20@100ms")
         streams.append("!forceOrder@arr")
         return f"{self.base_ws_url}?streams={'/'.join(streams)}"
@@ -141,7 +145,8 @@ class BinanceWebSocketClient:
                 if symbol in self.trade_buffers:
                     self.trade_buffers[symbol].append(trade)
 
-            elif "@kline_5m" in stream_name:
+            elif "@kline_5m" in stream_name or "@kline_15m" in stream_name:
+                tf = "15m" if "@kline_15m" in stream_name else "5m"
                 k = data["k"]
                 symbol = data["s"].upper()
                 candle = Candle(
@@ -154,14 +159,19 @@ class BinanceWebSocketClient:
                     volume=float(k["v"]),
                     is_closed=bool(k["x"]),
                 )
-                if symbol in self.kline_5m_buffers:
-                    self.kline_5m_buffers[symbol].append(candle)
+                if tf == "15m":
+                    if symbol in self.kline_15m_buffers:
+                        self.kline_15m_buffers[symbol].append(candle)
+                else:
+                    if symbol in self.kline_5m_buffers:
+                        self.kline_5m_buffers[symbol].append(candle)
+
                 if candle.is_closed:
                     for cb in self._candle_close_callbacks:
                         try:
-                            cb(symbol, "5m", candle)
+                            cb(symbol, tf, candle)
                         except Exception as e:
-                            logger.error(f"Error in candle close callback: {e}")
+                            logger.error(f"Error in candle close callback ({tf}): {e}")
 
             elif "@depth20" in stream_name:
                 symbol = stream_name.split("@")[0].upper()

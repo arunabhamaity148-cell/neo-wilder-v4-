@@ -61,6 +61,7 @@ class VetoPipeline:
             is_news_window=is_news_window,
             is_news_outage=is_news_outage,
             calibration_valid=calibration_valid,
+            cluster_risk_r=cluster_risk_r,
         )
 
         if not hard_res.passed:

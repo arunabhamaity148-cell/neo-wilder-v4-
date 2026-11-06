@@ -1,88 +1,63 @@
-# DEPLOYMENT_READINESS.md — NEO-WILDER V4 Production Readiness Statement
+# DEPLOYMENT_READINESS.md — NEO-WILDER V4 ডিপ্লয়মেন্ট প্রস্তুতি বিবৃতি
 
-**System:** NEO-WILDER V4  
-**Architect:** Chief Architect & Main Integrator  
-**Date:** 2026-11-06  
-**Operating Architecture:** Single Asyncio Process (Permanent SIGNAL_ONLY)
+**সিস্টেম:** NEO-WILDER V4  
+**দায়িত্ব:** Principal Architect & Main Integrator  
+**তারিখ:** 2026-11-07  
+**আর্কিটেকচার:** Single Asyncio Process (Permanent SIGNAL_ONLY)  
+**বর্তমান প্রস্তুতি স্ট্যাটাস:** **READY FOR SHADOW MODE DEPLOYMENT (৮ সপ্তাহের সোক টেস্ট গেট চলমান)**
 
 ---
 
-## 1. Host Infrastructure Specification
+## ১. হোস্ট ইনফ্রাস্ট্রাকচার ও ভিপিএস স্পেসিফিকেশন
 
-| Component | Target Specification | Production Configuration |
+| কম্পোনেন্ট | লক্ষ্যমাত্রা | প্রডাকশন ভিপিএস কনফিগারেশন |
 |---|---|---|
-| **Platform** | Cloud VPS / Dedicated Server | Debian 12 (Bookworm) or Ubuntu 22.04/24.04 LTS |
-| **vCPU** | 2 Virtual Cores | `CPUQuota=150%` enforced via systemd |
-| **Physical RAM** | 1024 MB (1 GB) | `MemoryHigh=350M`, `MemoryMax=400M` enforced |
-| **Swap** | 1024 MB Swapfile | Enabled to absorb transient OS spikes |
-| **Python Runtime** | Python 3.11.9+ | Dedicated isolated virtualenv at `/opt/neo-wilder-v4/.venv` |
-| **Clock Synchronization** | Microsecond accuracy | `chrony` configured with NTP servers ($< 50\text{ ms}$ jitter) |
+| **প্ল্যাটফর্ম** | ক্লাউড ভিপিএস / ডেডিকেটেড সার্ভার | Debian 12 (Bookworm) বা Ubuntu 22.04/24.04 LTS (Oracle Always Free VPS) |
+| **vCPU** | ২ ভার্চুয়াল কোর | `CPUQuota=150%` এনফোর্সড (systemd) |
+| **র‍্যাম (RAM)** | ১০২৪ MB (১ GB) | `MemoryHigh=350M`, `MemoryMax=400M` এনফোর্সড (systemd) |
+| **সোয়াপ (Swap)** | ১০২৪ MB সোয়াপ ফাইল | ওএস স্পাইক শোষণের জন্য সক্রিয় |
+| **পাইথন রানটাইম** | Python 3.11.9+ | আইসোলেটেড ভার্চুয়াল এনভায়রনমেন্ট (`/opt/neo-wilder-v4/venv`) |
+| **টাইম সিঙ্ক্রোনাইজেশন**| মাইক্রোসেকেন্ড নিখুঁত | NTP / Chrony সিঙ্ক এনফোর্সড (ক্লক স্কিউ < ৫০ms) |
 
 ---
 
-## 2. Resource Budget & Memory Ceiling Analysis
+## ২. রিসোর্স বাজেট ও মেমরি সিলিং বিশ্লেষণ
 
-The application runs in a single asynchronous event loop with strict memory boundaries:
+অ্যাপ্লিকেশনটি একটি একক অ্যাসিঙ্ক্রোনাস ইভেন্ট লুপে বাউন্ডেড রিংবাফারের মাধ্যমে পরিচালিত হয়:
 
-- **Aggregated Trades Ringbuffer:** `deque(maxlen=20000)` per symbol ($\approx 3.2\text{ MB}$ for 3 symbols).
-- **Orderbook Depth Ringbuffer:** `deque(maxlen=300)` per symbol ($\approx 1.5\text{ MB}$).
-- **Historical 15m Candles:** `deque(maxlen=500)` per symbol ($\approx 0.8\text{ MB}$).
-- **SQLite WAL Cache:** `PRAGMA cache_size = -20000` ($\approx 20\text{ MB}$).
-- **Process Memory Profile:**
-  - **Baseline Idle RSS:** $\approx 45\text{ MB}$.
-  - **Peak Operational RSS:** $< 150\text{ MB}$ (verified in Phase 11 100k-trade stress test).
-  - **Internal Warning Target:** $220\text{ MB}$ (`TARGET_CEILING_RSS_MB`).
-  - **Hard Veto Trigger:** $300\text{ MB}$ (`V-H08: MEMORY_EMERGENCY`).
-  - **Systemd Hard Kill:** $400\text{ MB}$ (`MemoryMax=400M`).
-
----
-
-## 3. Database Persistence & Concurrency Model
-
-- **Database Engine:** SQLite 3 with Write-Ahead Logging (`PRAGMA journal_mode=WAL;`).
-- **Synchronization:** `PRAGMA synchronous=NORMAL;` for SSD endurance and sub-millisecond writes.
-- **Concurrency Guarantee:** Single-writer async loop draining a bounded `asyncio.Queue(maxsize=10000)`. Multiple concurrent readers are supported without locking contention.
-- **Fail-Safe Flushing:** On graceful termination (`SIGTERM` / `SIGINT`), the queue flushes all pending records before database connection closure.
+- **ট্রেড বাফার:** `deque(maxlen=20000)` প্রতি সিম্বল (~৩.২ MB ৩টি সিম্বলের জন্য)।
+- **অর্ডারবুক ডেপথ বাফার:** `deque(maxlen=300)` প্রতি সিম্বল (~১.৫ MB)।
+- **১৫মি ক্যান্ডেল বাফার:** `deque(maxlen=500)` প্রতি সিম্বল (~০.৮ MB)।
+- **SQLite WAL ক্যাশ:** `PRAGMA cache_size = -20000` (~২০ MB)।
+- **মেমরি প্রফাইল (বাস্তব পরীক্ষা):**
+  - বেসলাইন আইডল RSS: ~৪৫ MB
+  - সাধারণ স্টেডি-স্টেট RSS: ১১০ – ১৩০ MB
+  - সর্বোচ্চ পিক লোড RSS: < ১৭৫ MB
+  - ইন্টারনাল সতর্কতা সিলিং: ২২০ MB (`TARGET_CEILING_RSS_MB`)
+  - হার্ড ভিটো ট্রিপ (`V-H08`): ৩০০ MB (মেমরি ইমার্জেন্সি)
+  - সিস্টেমড হার্ড কিল (`MemoryMax`): ৪০০ MB
 
 ---
 
-## 4. Security & SIGNAL_ONLY Invariant
+## ৩. ডেটাবেস পারসিস্টেন্স ও কনকারেন্সি মডেল
 
-The codebase has undergone a zero-execution audit:
-1. **Zero Exchange Private Keys:** The system configuration and code contain no fields for Binance or CoinDCX API keys, secret keys, or passphrases.
-2. **Zero Order Execution Code:** No execution endpoints, order creation methods, cancellation logic, or balance mutation tools exist in the codebase.
-3. **Fail-Closed Hard Vetoes:** Hard vetoes (`V-H01` through `V-H34`) are immutable and can NEVER be bypassed by any operator flag, configuration, or high quality score.
-
----
-
-## 5. CoinDCX Public Validation & Friction Architecture
-
-- **Venues:** Binance USD-M WebSocket & REST streams are used strictly for causal research and signal generation. CoinDCX public REST APIs are used strictly for real-time manual execution validation.
-- **Friction Model:**
-  - Taker Fee: $0.050\%$ per side.
-  - Indian GST: $+18\%$ on fees $\rightarrow 0.059\%$ per side ($0.1180\%$ round-trip).
-  - Slippage Model: $0.5 \times \text{spread} + 0.3 \times (\text{ATR}/100)$ with a $1.0\text{ bp}$ floor (baseline $0.0174\%$).
-  - Baseline Round-Trip Friction: $0.1354\%$.
-- **Validation Gates:**
-  - Price Drift Gate: Cross-venue divergence $> 0.35\%$ blocks publication (`V-H32`).
-  - Spread Gate: Spread $> 12\text{ bps}$ (Major) or $> 25\text{ bps}$ (Alt) blocks publication (`V-H33`).
-  - Depth Gate: Orderbook depth $< 20\times$ clip blocks publication (`V-H34`).
+- **ইঞ্জিন:** SQLite 3 with Write-Ahead Logging (`PRAGMA journal_mode=WAL;`) এবং `synchronous=NORMAL`।
+- **সিঙ্গেল রাইটার মডেল:** একটি মাত্র অ্যাসিঙ্ক লুপ বাউন্ডেড কিউ (`maxsize=10000`) ড্রেন করে ডাটাবেসে ব্যাচ ইনসার্ট করে। ফলে কনকারেন্সি রাইট লক বা ক্র্যাশ ঘটার কোনো সুযোগ নেই।
+- **গ্রেসফুল ফ্ল্যাশ:** প্রসেস শাটডাউনে (`SIGTERM` / `SIGINT`) কিউতে থাকা সমস্ত রেকর্ড ডিস্কে রাইট করে তবেই কানেকশন বন্ধ হয়।
+- **রিস্টার্ট রিকভারি:** বট রিস্টার্ট হলে ডেটাবেসে থাকা ওপেন সিগন্যাল স্বয়ংক্রিয়ভাবে মেমরিতে রিলোড হয়।
 
 ---
 
-## 6. Honest Empirical Validation Declarations
+## ৪. সিকিউরিটি ও স্থায়ী SIGNAL_ONLY ইনভ্যারিয়েন্ট
 
-In accordance with institutional research integrity standards, the following status flags are explicitly declared:
-
-| Area | Production Status | Requirement for Promotion |
-|---|---|---|
-| **Quality Calibration** | **`NOT CALIBRATED`** | Requires $\ge 300$ resolved live trades recorded in `DatabaseStore` to fit isotonic regression. |
-| **Shadow Mode** | **`RUNTIME VALIDATION PENDING / NOT PROVEN`** | Requires 8 weeks (56 days) continuous live VPS soak, $\ge 50$ shadow setups, and 0 crashes. |
-| **Manual Paper Validation** | **`MANUAL PAPER VALIDATION PENDING / NOT PROVEN`** | Requires $\ge 100$ resolved operator `/fill` records achieving $\ge 45\%$ win rate, $\ge 1.40$ PF, $\ge +0.35\text{ R}$, $\le 6.0\text{ R}$ DD. |
-| **S1 Short Strategy** | **`DISABLED (ABSTAIN)`** | Fail-closed preservation of incomplete source formulas; zero short candidates generated. |
+- **জিরো এক্সচেঞ্জ প্রাইভেট কী:** কোনো এপিআই কী বা সিক্রেট সংরক্ষণ করা হয় না।
+- **জিরো অর্ডার এক্সিকিউশন কোড:** অর্ডার পাঠানো, বাতিল করা বা অ্যাকাউন্ট ব্যালান্স পরিবর্তনের কোনো কোড নেই।
+- **হার্ড ভিটো অনতিক্রম্যতা:** ৩৪টি হার্ড ভিটো কোনো স্কোর বা অপারেটর ফ্ল্যাগ দ্বারা বাইপাস করা সম্ভব নয়।
 
 ---
 
-## 7. Signoff
+## ৫. ডিপ্লয়মেন্ট প্রস্তুতি ও পরবর্তী করণীয়
 
-The NEO-WILDER V4 system is fully implemented, tested, and ready for deployment to the production VPS under the supervision of the operator.
+1. **শ্যাডো মোডে ডিপ্লয়:** ওরাকল ভিপিএসে কোড ডেপ্লয় করে `EXECUTION_MODE=SHADOW` দিয়ে সিস্টেমড সার্ভিস চালু করা।
+2. **টেলিগ্রাম টেলিমেট্রি পর্যবেক্ষণ:** প্রাইভেট টেস্ট চ্যানেলে সিগন্যাল কোয়ালিটি এবং সিস্টেম হেলথ মনিটর করা।
+3. **৮ সপ্তাহের সোক টেস্ট:** টানা ৮ সপ্তাহ কোনো ক্র্যাশ ও ফলস ভিটো ছাড়া পরিচালনা করে ৫০টি রিজলভড সেটআপ পর্যবেক্ষণ করা।

@@ -57,6 +57,9 @@ async def test_application_initialization(tmp_path: Path, monkeypatch):
     # Test startup and immediate shutdown
     await app.start()
     assert app.store._running is True
+    assert app.ws_client is not None
+    assert app.ws_client._running is True
 
     await app.stop()
     assert app.store._running is False
+    assert app.ws_client._running is False

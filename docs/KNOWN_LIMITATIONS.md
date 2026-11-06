@@ -1,86 +1,55 @@
-# KNOWN_LIMITATIONS.md — NEO-WILDER V4 Deliberate Fail-Closed Boundaries
+# KNOWN_LIMITATIONS.md — NEO-WILDER V4 সুচিন্তিত ফেইল-ক্লোজড সীমাবদ্ধতা
 
-**Document Version:** 4.0.0  
-**Status:** ACTIVE & ENFORCED  
-**Policy:** Fail-Closed Research Compliance (No Invented Formulas)
-
----
-
-## 1. Executive Statement of Architectural Invariants
-
-Per the Phase 0 Master Source Audit and autonomous execution authorization, NEO-WILDER V4 strictly adheres to research-supported specifications. Where research formulas were omitted, asymmetric, or mathematically ambiguous, **no formulas have been invented**. Instead, all affected operational paths are explicitly disabled fail-closed.
+**ডকুমেন্ট ভার্সন:** 4.1.0 (Integrator Verified)  
+**স্ট্যাটাস:** সক্রিয় এবং কোডে কঠোরভাবে প্রয়োগকৃত (ACTIVE & ENFORCED)  
+**মূলনীতি:** ফেইল-ক্লোজড রিসার্চ কমপ্লায়েন্স — কোনো ফর্মুলা বা থ্রেশহোল্ড মনগড়াভাবে আবিষ্কার নিষিদ্ধ (No Invented Formulas)
 
 ---
 
-## 2. Inactive & Disabled Strategy Functionality
+## ১. নির্বাহী বিবৃতি ও আর্কিটেকচারাল ইনভ্যারিয়েন্টস
 
-### 2.1 Strategy S1 (`SWEEP-RECLAIM-v4`): SHORT Candidate Generation Disabled
-- **Status:** **DISABLED (FAIL-CLOSED ABSTAIN)**
-- **Audit Defect:** The source document `STRATEGY_SPECIFICATIONS.md` §S1 omitted the short-side sweep depth formula ($d = \text{pool} - \text{low}$ was defined for LONG only), omitted the short-side entry zone formula, and contained a sign error in the stop-loss formula ($sweep\_extreme - buffer \times ATR$).
-- **Enforced Runtime Behavior:**
-  - Any detected bearish sweep of Equal Highs (EQH) produces an immediate `EdgeResult.ABSTAIN`.
-  - Strategy S1 emits candidate objects **exclusively for LONG setups**.
-  - No short entry zone, short stop-loss, or short target calculation is computed or published.
-- **Lifting Condition:** Requires formal specification and user signoff of symmetric short-side formulas.
-
-### 2.2 Take Profit 2 (TP2) Ambiguity & Target Geometry
-- **Status:** **RESTRICTED TO FULLY SPECIFIED TARGETS (TP1)**
-- **Audit Defect:** `STRATEGY_SPECIFICATIONS.md` line 22 states *"TP2 = 1.618 extension of TP1"* without specifying the reference anchor (e.g. extension from Entry vs extension from Sweep Extreme).
-- **Enforced Runtime Behavior:**
-  - Mandatory target geometry evaluates exclusively against structural **TP1** (nearest opposing swing or Volume Profile level providing $\text{Net R:R} \ge 1.50$).
-  - If a signal payload requires a secondary target and the reference anchor is unresolved, TP2 is populated as `None` or identical to TP1, avoiding fabricated extensions. If mandatory target geometry cannot be satisfied without an invented formula, the candidate generator returns `ABSTAIN`.
-- **Lifting Condition:** Formal specification of the Fibonacci extension anchor point.
-
-### 2.3 Strategy S2 (`OI-EXHAUSTION-v4`)
-- **Status:** **SHADOW TELEMETRY ONLY**
-- **Operational Boundary:** Evaluated for internal journal logging; strictly forbidden from emitting live Telegram signals until Phase 9 ablation testing passes. S2 is LONG-only in V4.0 per specification.
-
-### 2.4 Strategy S3 (`BASIS-DIVERGENCE-v4`)
-- **Status:** **EXPERIMENTAL / SANDBOX ONLY**
-- **Operational Boundary:** Evaluated only when Binance Spot and Perp streams are connected and inter-feed clock offset is $\le 150\text{ ms}$. Does not emit live signals.
+Phase 0 মাস্টার সোর্স অডিট এবং অপারেটর নির্দেশিকা অনুসারে, NEO-WILDER V4 শুধুমাত্র প্রমাণিত ও অনুমোদিত রিসার্চ স্পেসিফিকেশন মেনে চলে। যেসব ক্ষেত্রে রিসার্চ ফর্মুলা অনুপস্থিত, অপ্রতিসম বা গাণিতিকভাবে অস্পষ্ট ছিল, সেখানে কোনো মনগড়া ফর্মুলা আবিষ্কার করা হয়নি। পরিবর্তে, সকল প্রভাবিত পাথ কঠোরভাবে ফেইল-ক্লোজড (`ABSTAIN`) রাখা হয়েছে।
 
 ---
 
-## 3. Data Source Limitations & Constraints
+## ২. নিষ্ক্রিয় ও ফেইল-ক্লোজড স্ট্র্যাটেজি সীমাবদ্ধতা
 
-### 3.1 CoinDCX 15-Minute Candle Absence
-- **Finding:** CoinDCX public candlestick REST API supports only resolutions `1`, `5`, `60`, and `1D`. There is **no 15-minute candle resolution**.
-- **Consequence:** 15-minute technical setups can never be generated natively from CoinDCX.
-- **Architectural Boundary:** Binance USD-M Futures is the permanent research venue. CoinDCX is strictly the manual execution validation venue.
+### ২.১ স্ট্র্যাটেজি S1 (`SWEEP-RECLAIM-v4`): SHORT ক্যান্ডিডেট জেনারেশন সম্পূর্ণ নিষিদ্ধ
+- **স্ট্যাটাস:** **DISABLED (FAIL-CLOSED ABSTAIN)**
+- **মূল কারণ:** সোর্স ডকুমেন্টে শর্ট সাইডের সুইপ ডেপথ ফর্মুলা অনুপস্থিত ছিল, শর্ট এন্ট্রি জোন অনুল্লিখিত ছিল এবং স্টপ-লস সূত্রে সাইন এরর বিদ্যমান ছিল।
+- **কোড ও রানটাইম আচরণ:**
+  - যেকোনো বিয়ারিশ সুইপ (Equal Highs - EQH) শনাক্ত হলে তা তাৎক্ষণিকভাবে `EdgeResult.ABSTAIN` রিটার্ন করে।
+  - স্ট্র্যাটেজি S1 শুধুমাত্র **লং সেটআপের** জন্য ক্যান্ডিডেট অবজেক্ট তৈরি করে।
+  - কোনো শর্ট এন্ট্রি জোন, শর্ট স্টপ-লস বা শর্ট টার্গেট কখনোই পাবলিশ হয় না।
+- **উত্তোলনের শর্ত:** শর্ট সাইডের সম্পূর্ণ প্রতিসম ফর্মুলা অপারেটর কর্তৃক আনুষ্ঠানিকভাবে অনুমোদিত হতে হবে।
 
-### 3.2 CoinDCX Derivatives Context Absence
-- **Finding:** CoinDCX exposes no public Open Interest or Liquidation feeds.
-- **Consequence:** All derivatives context features (CVD, OI Delta, Liquidations) derive solely from Binance USD-M.
+### ২.২ টেক প্রফিট ২ (TP2) অস্পষ্টতা ও টার্গেট জ্যামিতি
+- **স্ট্যাটাস:** **RESTRICTED TO FULLY SPECIFIED TARGETS (TP1)**
+- **মূল কারণ:** সোর্স ডকুমেন্টে *"TP2 = 1.618 extension of TP1"* উল্লেখ থাকলেও ফিবোনাচ্চি এক্সটেনশনের কোনো রেফারেন্স অ্যাঙ্কর নির্দিষ্ট ছিল না (যেমন এন্ট্রি থেকে নাকি সুইপ এক্সট্রিম থেকে)।
+- **কোড ও রানটাইম আচরণ:**
+  - ক্যান্ডিডেটের টার্গেট জ্যামিতি শুধুমাত্র কাঠামোগত **TP1** (নিকটবর্তী বিপরীত সুইং বা ভলিউম প্রোফাইল লেভেল যা Net R:R >= 1.50 প্রদান করে) দিয়ে নির্ধারিত হয়।
+  - সিগন্যাল পেলোডে TP2 অনুপস্থিত বা `None` রাখা হয়। কোনো কাল্পনিক এক্সটেনশন তৈরি করা হয় না।
+- **উত্তোলনের শর্ত:** ফিবোনাচ্চি এক্সটেনশন অ্যাঙ্করের আনুষ্ঠানিক স্পেসিফিকেশন।
 
-### 3.3 Binance Liquidation Stream Under-Sampling
-- **Finding:** Binance `!forceOrder@arr` publishes snapshots throttled at 1 event per symbol per 1000 ms.
-- **Consequence:** Total liquidation volume during rapid cascades is a lower bound. Edge `E13` ($Z_{\text{liq}}$) is restricted to `SHADOW` status.
+### ২.৩ স্ট্র্যাটেজি S2 (`OI-EXHAUSTION-v4`)
+- **স্ট্যাটাস:** **SHADOW TELEMETRY ONLY**
+- **সীমানা:** শুধুমাত্র অভ্যন্তরীণ জার্নালে লগিংয়ের জন্য মূল্যায়ন করা হয়। লাইভ টেলিগ্রাম সিগন্যাল পাঠানো কঠোরভাবে নিষিদ্ধ।
 
----
-
-## 4. Scoring & Probability Display Constraints
-
-### 4.1 Probability Calibration Display
-- **Condition:** Per `V-H34` and `AGENT.md` §0 Rule 5, unless an empirical isotonic calibration artefact (`score_v4_YYYYMMDD.json`) based on $\ge 300$ resolved out-of-sample trades exists and is $\le 90$ days old:
-- **Output:** The published signal must display `"calibrated_probability": "NOT CALIBRATED"`.
-- **Prohibition:** No estimated probability, percentage win-rate claim, or machine-learning confidence score may be presented to the user.
-
----
-
-## 5. Dedicated Extreme Market Risk Guard (Bidirectional) Protocols
-
-### 5.1 Protective Safety Scope
-- **Nature:** The `ExtremeMarketRiskGuard` is strictly a defensive risk interception layer, **NOT** a trading strategy. It cannot generate candidates, modify price targets, or override any hard veto.
-- **Fail-Closed Missing Data:** If any critical derivatives feed is offline or unavailable (e.g., missing Open Interest, missing funding context, or orderbook data stale > 3.0 seconds), the risk guard immediately raises a fail-closed hard block (`V-H11` / `V-H06`) resulting in candidate `ABSTAIN`.
-- **Bidirectional Danger Evaluation:**
-  - **LONG Candidates:** Evaluated against positive funding crowding ($> +0.05\%$), perp-led rallies with spot exhaustion/divergence, bid liquidity voids ($\text{OBI} < -0.60$), and overbought bearish RSI divergence.
-  - **SHORT Candidates:** Evaluated against negative funding crowding ($< -0.05\%$), perp-led selloffs without spot confirmation, ask liquidity voids ($\text{OBI} > +0.60$), and oversold bullish RSI divergence. Even if hypothetical short candidate generation is tested in sandbox environments, production S1 SHORT generation remains completely disabled fail-closed per Section 2.1.
-- **Edge Registry Status Preservation:**
-  - `E13` (Liquidation Bursts), `E15` (Perp CVD Slope), `E16` (OBI Imbalance), `E17` (Microstructure Volatility), and `E21` (OI Acceleration) strictly maintain **SHADOW** status (contributing zero active points).
-  - `E14` (Liquidation Cluster Proximity) and `E22` (Spot/Perp CVD Ratio) strictly maintain **EXPERIMENTAL** status (contributing zero active points).
-  - Active scoring is restricted to source-verified active edges (`E01`–`E04`, `E11`–`E12`, `E23`, `E24`).
+### ২.৪ স্ট্র্যাটেজি S3 (`BASIS-DIVERGENCE-v4`)
+- **স্ট্যাটাস:** **EXPERIMENTAL / SANDBOX ONLY**
+- **সীমানা:** লাইভ সিগন্যাল তৈরি করে না; শুধুমাত্র রিসার্চ স্যান্ডবক্সে আবদ্ধ।
 
 ---
 
-## 6. Summary of Compliance
-All limitations documented above represent **deliberate, research-faithful risk controls**. The system guarantees zero fabricated numbers, zero unverified endpoints, zero execution keys, and zero unproven strategy formulas in production.
+## ৩. মার্কেট ডেটা সোর্স সীমাবদ্ধতা
+
+### ৩.১ CoinDCX ১৫ মিনিটের ক্যান্ডেল অনুপস্থিতি
+- **বাস্তবতা:** CoinDCX পাবলিক REST API-তে কোনো ১৫ মিনিটের ক্যান্ডেল রেজোলিউশন নেই।
+- **আর্কিটেকচারাল সমাধান:** Binance USD-M হলো প্রাথমিক রিসার্চ ও সিগন্যাল জেনারেশন ভেন্যু। CoinDCX শুধুমাত্র ম্যানুয়াল এক্সিকিউশন প্রাইস ও স্প্রেড ভ্যালিডেশন ভেন্যু হিসেবে ব্যবহৃত হয়।
+
+### ৩.২ বাইন্যান্স লিকুইডেশন স্ট্রিমে আন্ডার-স্যাম্পলিং
+- **বাস্তবতা:** বাইন্যান্স `!forceOrder@arr` স্ট্রিমে সেকেন্ডে ১টি ইভেন্ট স্যাম্পল করে।
+- **আর্কিটেকচারাল সমাধান:** দ্রুত লিকুইডেশন ক্যাসকেডের সময় এই ডেটা একটি লোয়ার-বাউন্ড নির্দেশক হিসেবে কাজ করে। ফলে `E13` এজটি অ্যাক্টিভ স্কোরে সীমিত এবং `ExtremeMarketRiskGuard`-এ সতর্কতামূলক ট্র্যাকার হিসেবে ব্যবহৃত।
+
+### ৩.৩ ফেইল-ক্লোজড মিসিং ডেটা পলিসি
+- কোনো সংকটজনক ডেরিভেটিভস ফিড অফলাইন থাকলে (যেমন ১০ মিনিটের বেশি ওপেন ইন্টারেস্ট বা ফান্ডিং অনুপস্থিত, অথবা অর্ডারবুক ৩ সেকেন্ডের বেশি পুরনো), রিস্ক গার্ড তাৎক্ষণিক `ABSTAIN` / হার্ড ভিটো ব্লক (`V-H11` / `V-H06`) জারি করে।

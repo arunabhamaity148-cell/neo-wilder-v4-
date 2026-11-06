@@ -4,7 +4,7 @@ All models are strongly typed, immutable dataclasses.
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from neo_wilder.domain.enums import Direction, RegimeState
 
@@ -94,7 +94,11 @@ class OISnapshot:
     symbol: str
     timestamp_ms: int
     open_interest: float
-    open_interest_value: float
+    open_interest_value: float = 0.0
+
+    @property
+    def open_interest_usd(self) -> float:
+        return self.open_interest_value
 
 
 @dataclass(frozen=True)
@@ -119,6 +123,11 @@ class SwingPivot:
     price: float
     pivot_type: str  # "HIGH" or "LOW"
 
+    @property
+    def bar_index(self) -> int:
+        """Alias for index to maintain backwards compatibility across indicators."""
+        return self.index
+
 
 @dataclass(frozen=True)
 class LiquidityPool:
@@ -140,7 +149,7 @@ class EdgeResult:
     confidence: float  # 0.0 to 1.0
     direction: Direction
     score_contribution: int = 0
-    metadata: Dict[str, float] = field(default_factory=dict)
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def abstain(cls, edge_id: str) -> "EdgeResult":

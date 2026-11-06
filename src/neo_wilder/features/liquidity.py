@@ -88,3 +88,6 @@ class LiquidityPoolDetector:
                 )
 
         return clusters
+
+
+LiquidityEngine = LiquidityPoolDetector

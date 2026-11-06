@@ -56,3 +56,6 @@ class SwingDetector:
                 )
 
         return pivots
+
+    # Alias to support both naming conventions from audit specifications
+    find_swing_pivots = find_swings

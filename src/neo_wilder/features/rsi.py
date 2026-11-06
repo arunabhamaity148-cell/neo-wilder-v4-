@@ -93,8 +93,8 @@ class RSIEngine:
             if len(high_swings) >= 2:
                 s_prev = high_swings[-2]
                 s_curr = high_swings[-1]
-                idx_prev = s_prev.bar_index
-                idx_curr = s_curr.bar_index
+                idx_prev = s_prev.index
+                idx_curr = s_curr.index
 
                 if 0 <= idx_prev < len(rsi_array) and 0 <= idx_curr < len(rsi_array):
                     rsi_prev = rsi_array[idx_prev]
@@ -108,8 +108,8 @@ class RSIEngine:
             if len(low_swings) >= 2:
                 s_prev = low_swings[-2]
                 s_curr = low_swings[-1]
-                idx_prev = s_prev.bar_index
-                idx_curr = s_curr.bar_index
+                idx_prev = s_prev.index
+                idx_curr = s_curr.index
 
                 if 0 <= idx_prev < len(rsi_array) and 0 <= idx_curr < len(rsi_array):
                     rsi_prev = rsi_array[idx_prev]
@@ -127,3 +127,5 @@ class RSIEngine:
             is_overbought=current_rsi > 70.0,
             is_oversold=current_rsi < 30.0,
         )
+
+    compute = evaluate

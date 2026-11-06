@@ -224,3 +224,97 @@ def test_soft_veto_escalation_btc_crash():
     )
     assert passed is False
     assert hard_res.blocking_id == "V-S01"
+
+
+def test_v_h06_orderbook_stale_blocks():
+    """Verify V-H06 blocks fail-closed when orderbook depth is stale > 3s."""
+    candidate, ctx, quote = _build_valid_candidate_and_context()
+    pipeline = VetoPipeline()
+    clock = SystemClock()
+
+    passed, hard_res, _ = pipeline.evaluate_candidate(
+        candidate=candidate,
+        ctx=ctx,
+        quote=quote,
+        clock=clock,
+        is_orderbook_stale=True,
+    )
+    assert passed is False
+    assert hard_res.blocking_id == "V-H06"
+    assert hard_res.reason_code == "ORDERBOOK_STALE"
+
+
+def test_v_s11_weak_orderflow_confidence_penalty():
+    """Verify V-S11 applies confidence penalty when CVD opposes trade direction."""
+    from neo_wilder.features.cvd import CVDResult
+
+    candidate, ctx, quote = _build_valid_candidate_and_context()
+    pipeline = VetoPipeline()
+    clock = SystemClock()
+
+    # LONG candidate with negative CVD slope (selling into rally)
+    ctx_opposing_cvd = FeatureContext(
+        symbol=ctx.symbol,
+        timeframe=ctx.timeframe,
+        now_ms=ctx.now_ms,
+        candles=ctx.candles,
+        atr_result=ctx.atr_result,
+        funding_context=ctx.funding_context,
+        oi_snapshot=ctx.oi_snapshot,
+        oi_history=ctx.oi_history,
+        cvd_result=CVDResult(
+            total_delta=-50000.0,
+            slope=-12.5,
+            has_turned_bullish=False,
+            has_turned_bearish=True,
+        ),
+    )
+
+    passed, _, soft_res = pipeline.evaluate_candidate(
+        candidate=candidate,
+        ctx=ctx_opposing_cvd,
+        quote=quote,
+        clock=clock,
+    )
+    assert passed is True
+    assert "V-S11" in soft_res.active_soft_vetoes
+    assert soft_res.confidence_penalty >= 10.0
+
+
+def test_fresh_governor_unlocked_and_cooldown():
+    """Verify PortfolioGovernor fresh startup unlock and symbol cooldown (DEF-07/P0-07)."""
+    gov = PortfolioGovernor(cooldown_sec=1800.0)
+
+    # 1. Fresh startup must NEVER lock symbols
+    assert gov.is_symbol_locked("BTCUSDT") is False
+    assert gov.is_symbol_locked("ETHUSDT") is False
+
+    # 2. Record signal for BTCUSDT
+    gov.record_signal_published("BTCUSDT", direction="LONG", strategy="S1_SWEEP_RECLAIM")
+    assert gov.is_symbol_locked("BTCUSDT") is True
+
+    # 3. Different symbol must remain unlocked
+    assert gov.is_symbol_locked("ETHUSDT") is False
+
+    # 4. Advance simulated time past cooldown (1801s)
+    gov.state.symbol_last_signal_time["BTCUSDT"] -= 1801.0
+    assert gov.is_symbol_locked("BTCUSDT") is False
+
+
+def test_v_h27_cluster_heat_limit():
+    """Verify V-H27 blocks when cluster open risk exceeds 2.0R."""
+    candidate, ctx, quote = _build_valid_candidate_and_context()
+    pipeline = VetoPipeline()
+    clock = SystemClock()
+
+    # Pass cluster_risk_r = 2.5R (> 2.0R cap)
+    passed, hard_res, _ = pipeline.evaluate_candidate(
+        candidate=candidate,
+        ctx=ctx,
+        quote=quote,
+        clock=clock,
+        cluster_risk_r=2.5,
+    )
+    assert passed is False
+    assert hard_res.blocking_id == "V-H27"
+    assert hard_res.reason_code == "CLUSTER_HEAT"

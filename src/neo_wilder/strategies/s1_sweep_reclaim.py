@@ -155,7 +155,7 @@ class S1SweepReclaimStrategy(BaseStrategy):
             net_rr=round(best_net_rr, 2),
             active_edge_ids=active_edges,
             confirming_edge_ids=confirming_edges,
-            expiry_bars=expiry_bars,
+            expiry_bars=int(expiry_bars),
             regime=regime,
             created_at_utc=now_utc,
         )

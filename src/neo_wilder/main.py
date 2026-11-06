@@ -12,7 +12,8 @@ import logging
 import os
 import signal
 import sys
-from datetime import datetime, timezone
+import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -21,16 +22,25 @@ import yaml
 from neo_wilder.clock import SystemClock
 from neo_wilder.coindcx.universe import SymbolUniverseManager
 from neo_wilder.coindcx.validator import CoinDCXExecutionValidator
+from neo_wilder.config import load_config
 from neo_wilder.data.rest_binance import BinanceRestClient
 from neo_wilder.data.rest_coindcx import CoinDCXPublicClient
 from neo_wilder.data.store import DatabaseStore
 from neo_wilder.data.ws_binance import BinanceWebSocketClient
-from neo_wilder.domain.enums import Direction, ExecutionMode
-from neo_wilder.domain.models import Candle, EdgeResult
+from neo_wilder.domain.enums import ExecutionMode
+from neo_wilder.domain.models import Candle, EdgeResult, FundingSnapshot, OISnapshot
 from neo_wilder.edges.base import FeatureContext
 from neo_wilder.edges.registry import EdgeRegistry
+from neo_wilder.edges.runner import EdgeRunner
 from neo_wilder.features.atr import ATREngine
+from neo_wilder.features.cvd import CVDEngine
+from neo_wilder.features.funding import FundingContextResult, FundingEngine
+from neo_wilder.features.liquidity import LiquidityEngine
+from neo_wilder.features.obi import OBIEngine
 from neo_wilder.features.regime import RegimeClassifier
+from neo_wilder.features.rsi import RSIEngine
+from neo_wilder.features.swings import SwingDetector
+from neo_wilder.features.volume_profile import VolumeProfileEngine
 from neo_wilder.journal.fills import FillJournal
 from neo_wilder.journal.outcomes import OutcomeResolver
 from neo_wilder.journal.signals import SignalJournal
@@ -58,29 +68,48 @@ class NeoWilderApplication:
     def __init__(self, mode: ExecutionMode = ExecutionMode.SIGNAL):
         self.mode = mode
         self.clock = SystemClock()
-        self.db_path = os.getenv("DB_PATH", "data/neo_wilder_journal.db")
+
+        # Load authoritative configuration
+        self.config_dir = Path("config")
+        self.config = load_config(self.config_dir)
+
+        self.db_path = os.getenv("DB_PATH", self.config.system.sqlite_path)
         self.store = DatabaseStore(self.db_path)
 
-        # Configs
-        self.config_dir = Path("config")
+        # Configs & Registries
         self.edge_registry = EdgeRegistry(self.config_dir / "edge_registry.yaml")
+        self.edge_runner = EdgeRunner(registry=self.edge_registry)
 
         # Clients
         self.binance_rest = BinanceRestClient(
-            base_url=os.getenv("BINANCE_REST_URL", "https://fapi.binance.com")
+            base_url=os.getenv("BINANCE_REST_URL", self.config.network.binance_rest_url)
         )
         self.coindcx_client = CoinDCXPublicClient(
-            public_url=os.getenv("COINDCX_PUBLIC_URL", "https://public.coindcx.com"),
-            api_url=os.getenv("COINDCX_API_URL", "https://api.coindcx.com"),
+            public_url=os.getenv("COINDCX_PUBLIC_URL", self.config.network.coindcx_public_rest_url),
+            api_url=os.getenv("COINDCX_API_URL", self.config.network.coindcx_api_rest_url),
         )
-        self.coindcx_validator = CoinDCXExecutionValidator()
+        self.coindcx_validator = CoinDCXExecutionValidator(
+            max_drift_pct=self.config.validation.max_price_drift_pct,
+            max_spread_major=self.config.validation.max_spread_bps_major,
+            max_spread_alt=self.config.validation.max_spread_bps_alt,
+            default_clip_usd=self.config.validation.default_intended_clip_usd,
+        )
         self.universe_manager = SymbolUniverseManager(self.coindcx_client)
 
         # Components
-        self.governor = PortfolioGovernor()
+        self.governor = PortfolioGovernor(
+            max_concurrent=self.config.portfolio.max_concurrent_trades,
+            max_open_risk_pct=self.config.portfolio.max_total_open_risk_pct,
+            cooldown_sec=self.config.portfolio.cooldown_sec,
+            max_daily_loss_pct=self.config.portfolio.max_daily_loss_pct,
+            max_weekly_loss_pct=self.config.portfolio.max_weekly_loss_pct,
+        )
         self.veto_pipeline = VetoPipeline(self.governor)
         self.scorer = CompositeScorer(self.edge_registry)
-        self.s1_strategy = S1SweepReclaimStrategy()
+        self.s1_strategy = S1SweepReclaimStrategy(
+            baseline_friction_pct=self.config.friction.baseline_round_trip_friction_pct
+        )
+        self.regime_classifier = RegimeClassifier()
 
         # Telemetry & Observability
         self.health_monitor = SystemHealthMonitor(self.store)
@@ -95,6 +124,7 @@ class NeoWilderApplication:
         self.fill_journal = FillJournal(self.store)
         self.outcome_resolver = OutcomeResolver(self.store)
 
+        self.shadow_runner: Optional[ShadowRunner] = None
         if self.mode == ExecutionMode.SHADOW:
             self.shadow_runner = ShadowRunner(
                 store=self.store,
@@ -102,13 +132,16 @@ class NeoWilderApplication:
                 scorer=self.scorer,
                 mode=ExecutionMode.SHADOW,
             )
-        else:
-            self.shadow_runner = None
 
         self._shutdown_event = asyncio.Event()
         self._health_task: Optional[asyncio.Task] = None
+        self._derivatives_task: Optional[asyncio.Task] = None
         self.active_symbols: List[str] = []
         self.ws_client: Optional[BinanceWebSocketClient] = None
+
+        # In-memory derivatives context cache (updated by background poller)
+        self._funding_cache: Dict[str, FundingContextResult] = {}
+        self._oi_history: Dict[str, List[OISnapshot]] = {}
 
     def _load_symbols(self) -> List[str]:
         """Load configured symbols from symbols.yaml."""
@@ -119,18 +152,21 @@ class NeoWilderApplication:
                 symbols_list = data.get("symbols", [])
                 if isinstance(symbols_list, list):
                     return [
-                        s.get("binance_symbol")
+                        str(s.get("binance_symbol"))
                         for s in symbols_list
-                        if isinstance(s, dict) and "binance_symbol" in s
+                        if isinstance(s, dict) and s.get("binance_symbol")
                     ]
         return ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
 
     async def start(self):
-        """Start all subsystem async loops."""
+        """Start all subsystem async loops and network connections."""
         logger.info(
             f"Starting NEO-WILDER V4 in mode={self.mode.value} (Permanent SIGNAL_ONLY, SQLite WAL single writer)"
         )
         await self.store.start()
+
+        # Reload open unresolved signals from SQLite for outcome tracking on restart
+        self.outcome_resolver.reload_unresolved_signals()
 
         # Sync exchange server time
         try:
@@ -155,13 +191,18 @@ class NeoWilderApplication:
         if not self.active_symbols:
             self.active_symbols = raw_symbols
 
-        # Initialize WebSocket Client
-        ws_url = os.getenv("BINANCE_WS_URL", "wss://fstream.binance.com/stream")
+        # Initialize and Start WebSocket Client
+        ws_url = os.getenv("BINANCE_WS_URL", self.config.network.binance_ws_url)
         self.ws_client = BinanceWebSocketClient(self.active_symbols, base_ws_url=ws_url)
         self.ws_client.register_candle_callback(self.on_candle_close)
+        await self.ws_client.start()
+        logger.info(
+            f"Binance WebSocket ingestion loop started for {len(self.active_symbols)} symbols."
+        )
 
-        # Start background health task
+        # Start background health & derivatives polling loops
         self._health_task = asyncio.create_task(self._health_loop())
+        self._derivatives_task = asyncio.create_task(self._poll_derivatives_loop())
 
         logger.info(
             f"NEO-WILDER V4 initialization complete. Monitoring {len(self.active_symbols)} symbols."
@@ -175,7 +216,7 @@ class NeoWilderApplication:
                 metrics, veto_flags = await self.health_monitor.check_health(self.clock.skew_ms)
                 self.watchdog.beat()
 
-                if veto_flags["V_H08"]:
+                if veto_flags.get("V_H08"):
                     logger.critical(
                         f"V-H08 asserted: Process RSS {metrics['rss_mb']:.1f} MB exceeds 300 MB limit!"
                     )
@@ -184,6 +225,56 @@ class NeoWilderApplication:
                 break
             except Exception as e:
                 logger.error(f"Error in health monitor loop: {e}", exc_info=True)
+
+    async def _poll_derivatives_loop(self):
+        """Periodic 30-second background fetch of Funding and Open Interest context."""
+        while not self._shutdown_event.is_set():
+            try:
+                now_ms = int(time.time() * 1000)
+                for sym in self.active_symbols:
+                    # 1. Fetch Premium Index / Funding
+                    try:
+                        p_data = await self.binance_rest.get_premium_index(sym)
+                        if p_data:
+                            snap = FundingSnapshot(
+                                symbol=sym,
+                                timestamp_ms=int(p_data.get("time", now_ms)),
+                                mark_price=float(p_data.get("markPrice", 0.0)),
+                                index_price=float(p_data.get("indexPrice", 0.0)),
+                                funding_rate=float(p_data.get("lastFundingRate", 0.0)),
+                                next_funding_time_ms=int(p_data.get("nextFundingTime", 0)),
+                            )
+                            self._funding_cache[sym] = FundingEngine.evaluate(snap, now_ms)
+                    except Exception as e:
+                        logger.debug(f"Derivatives poll funding error for {sym}: {e}")
+
+                    # 2. Fetch Open Interest
+                    try:
+                        oi_data = await self.binance_rest.get_open_interest(sym)
+                        if oi_data:
+                            oi_val = float(oi_data.get("openInterest", 0.0))
+                            oi_snap = OISnapshot(
+                                symbol=sym,
+                                timestamp_ms=int(oi_data.get("time", now_ms)),
+                                open_interest=oi_val,
+                                open_interest_value=oi_val * float(p_data.get("markPrice", 1.0))
+                                if p_data
+                                else 0.0,
+                            )
+                            if sym not in self._oi_history:
+                                self._oi_history[sym] = []
+                            self._oi_history[sym].append(oi_snap)
+                            if len(self._oi_history[sym]) > 50:
+                                self._oi_history[sym].pop(0)
+                    except Exception as e:
+                        logger.debug(f"Derivatives poll OI error for {sym}: {e}")
+
+                await asyncio.sleep(float(self.config.network.rest_poll_interval_sec))
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.warning(f"Error in derivatives poll loop: {e}")
+                await asyncio.sleep(5.0)
 
     def on_candle_close(self, symbol: str, timeframe: str, candle: Candle):
         """Callback invoked on 15m candle close from WebSocket stream."""
@@ -197,8 +288,8 @@ class NeoWilderApplication:
             # 1. Update outcome tracker
             await self.outcome_resolver.on_candle(symbol, candle)
 
-            # 2. Query historical trailing candles
-            candles = self.store.fetch_recent_candles(symbol, "15m", limit=100)
+            # 2. Query historical trailing candles (non-blocking)
+            candles = await self.store.fetch_recent_candles_async(symbol, "15m", limit=100)
             if not candles or candles[-1].open_time_ms != candle.open_time_ms:
                 candles.append(candle)
                 await self.store.record_candle(symbol, "15m", candle)
@@ -206,13 +297,32 @@ class NeoWilderApplication:
             if len(candles) < 20:
                 return
 
-            # 3. Compute Features
+            # 3. Compute Real Features
             atr_res = ATREngine.compute(candles, period=14)
             if not atr_res:
                 return
 
-            classifier = RegimeClassifier()
-            regime_out = classifier.evaluate(candles, atr_bps=atr_res.atr_bps)
+            swings = SwingDetector.find_swings(candles)
+            pools = LiquidityEngine.detect_pools(swings, atr=atr_res.atr)
+            regime_out = self.regime_classifier.evaluate(candles, atr_bps=atr_res.atr_bps)
+
+            trades = list(self.ws_client.trade_buffers.get(symbol, [])) if self.ws_client else []
+            cvd_res = CVDEngine.compute(trades) if trades else None
+            vp_res = VolumeProfileEngine.compute(candles, bins=50)
+
+            orderbook = (
+                self.ws_client.depth_buffers[symbol][-1]
+                if self.ws_client
+                and symbol in self.ws_client.depth_buffers
+                and self.ws_client.depth_buffers[symbol]
+                else None
+            )
+            obi_res = OBIEngine.compute(orderbook) if orderbook else None
+            rsi_res = RSIEngine.compute(candles, swings)
+
+            funding_ctx = self._funding_cache.get(symbol)
+            oi_snaps = self._oi_history.get(symbol, [])
+            oi_snap = oi_snaps[-1] if oi_snaps else None
 
             ctx = FeatureContext(
                 symbol=symbol,
@@ -220,10 +330,25 @@ class NeoWilderApplication:
                 now_ms=candle.close_time_ms,
                 candles=candles,
                 atr_result=atr_res,
+                swings=swings,
+                pools=pools,
+                regime_output=regime_out,
+                volume_profile=vp_res,
+                trades=trades,
+                orderbook=orderbook,
+                cvd_result=cvd_res,
+                obi_result=obi_res,
+                rsi_result=rsi_res,
+                funding_context=funding_ctx,
+                oi_snapshot=oi_snap,
+                oi_history=oi_snaps,
             )
 
-            # 4. Generate S1 Candidate
-            candidate = self.s1_strategy.generate_candidate(ctx)
+            # 4. Evaluate Real Edges via EdgeRunner
+            edge_results: Dict[str, EdgeResult] = self.edge_runner.evaluate_all(ctx)
+
+            # 5. Generate S1 Candidate Setup
+            candidate = self.s1_strategy.generate_candidate(ctx, edge_results)
             if not candidate:
                 return
 
@@ -231,7 +356,7 @@ class NeoWilderApplication:
                 f"Candidate setup detected on {symbol}: Entry [{candidate.entry_zone_low} - {candidate.entry_zone_high}]"
             )
 
-            # 5. Fetch CoinDCX Validation Quote
+            # 6. Fetch CoinDCX Validation Quote
             cdcx_pair = (
                 self.universe_manager.get_coindcx_pair(symbol)
                 or f"B-{symbol.replace('USDT', '')}_USDT"
@@ -256,12 +381,23 @@ class NeoWilderApplication:
                 )
                 return
 
-            # 6. Evaluate Veto Pipeline
+            # 7. Evaluate Veto Pipeline (Infrastructure, Risk Guard, Hard & Soft Vetoes)
+            is_ws_disconnected = (
+                self.ws_client.is_stale_or_disconnected() if self.ws_client else True
+            )
+            orderbook_age_sec = (
+                (time.time() - (orderbook.timestamp_ms / 1000.0)) if orderbook else 999.0
+            )
+            is_orderbook_stale = orderbook_age_sec > 3.0
+
             passed, hard_res, soft_res = self.veto_pipeline.evaluate_candidate(
                 candidate=candidate,
                 ctx=ctx,
                 quote=cdcx_quote,
                 clock=self.clock,
+                is_ws_disconnected=is_ws_disconnected,
+                is_orderbook_stale=is_orderbook_stale,
+                publish_threshold=self.config.scoring.publish_threshold,
             )
 
             if not passed:
@@ -270,55 +406,40 @@ class NeoWilderApplication:
                 )
                 return
 
-            # 7. Compute Quality Score
-            # Edge results dictionary
-            edge_results: Dict[str, EdgeResult] = {
-                "E01": EdgeResult(
-                    edge_id="E01",
-                    passed=True,
-                    confidence=1.0,
-                    direction=Direction.LONG,
-                    score_contribution=8,
-                ),
-                "E03": EdgeResult(
-                    edge_id="E03",
-                    passed=True,
-                    confidence=1.0,
-                    direction=Direction.LONG,
-                    score_contribution=4,
-                ),
-                "E04": EdgeResult(
-                    edge_id="E04",
-                    passed=True,
-                    confidence=1.0,
-                    direction=Direction.LONG,
-                    score_contribution=8,
-                ),
-            }
-            score_breakdown = self.scorer.score(candidate, edge_results)
+            # 8. Compute Correlation-Aware Composite Quality Score with Real Edge Results
+            score_breakdown = self.scorer.score(
+                candidate=candidate,
+                edge_results=edge_results,
+                confidence_penalty=soft_res.confidence_penalty,
+            )
 
-            if score_breakdown.total_score < 85:
+            threshold = self.config.scoring.publish_threshold + soft_res.threshold_increment
+            if score_breakdown.total_score < threshold:
                 logger.info(
-                    f"Candidate {symbol} score {score_breakdown.total_score} below threshold 85.0. Blocked."
+                    f"Candidate {symbol} score {score_breakdown.total_score} below effective threshold {threshold:.1f}. Blocked."
                 )
                 return
 
-            # 8. Dispatch based on mode
+            # 9. Dispatch based on mode
             if self.mode == ExecutionMode.SHADOW:
-                assert self.shadow_runner is not None
-                await self.shadow_runner.handle_shadow_candidate(
-                    candidate=candidate,
-                    edge_results=edge_results,
-                    veto_passed=passed,
-                )
+                if self.shadow_runner is not None:
+                    await self.shadow_runner.handle_shadow_candidate(
+                        candidate=candidate,
+                        edge_results=edge_results,
+                        veto_passed=passed,
+                    )
                 return
 
-            # 9. SIGNAL Mode: Build Immutable Signal & Publish to Telegram
+            # 10. SIGNAL Mode: Build Immutable Signal & Publish to Telegram
             sig_id = f"SIG-{symbol}-{int(datetime.now(timezone.utc).timestamp())}"
+            created_at = datetime.now(timezone.utc)
+            expiry_duration_min = max(1, candidate.expiry_bars) * 15
+            expires_at = created_at + timedelta(minutes=expiry_duration_min)
+
             signal_obj = Signal(
                 signal_id=sig_id,
-                created_at_utc=datetime.now(timezone.utc).isoformat(),
-                expires_at_utc=datetime.now(timezone.utc).isoformat(),
+                created_at_utc=created_at.isoformat(),
+                expires_at_utc=expires_at.isoformat(),
                 symbol_binance=symbol,
                 symbol_coindcx=cdcx_pair,
                 direction=candidate.direction,
@@ -337,23 +458,33 @@ class NeoWilderApplication:
                 gross_rr=candidate.gross_rr,
                 fee_pct=cdcx_val.fee_pct,
                 slippage_pct=cdcx_val.slippage_pct,
-                funding_pct_est=0.0,
+                funding_pct_est=funding_ctx.funding_rate_pct if funding_ctx else 0.0,
                 net_rr=candidate.net_rr,
                 score_0_100=score_breakdown.total_score,
                 calibrated_probability="NOT CALIBRATED",
                 regime=regime_out.state,
                 btc_context="NEUTRAL",
                 veto_status="CLEARED",
-                soft_veto_list=[],
-                max_entry_drift_pct=0.35,
+                soft_veto_list=soft_res.active_soft_vetoes,
+                max_entry_drift_pct=self.config.validation.max_price_drift_pct,
                 invalidation_conditions=[f"Bar closes below {candidate.stop_loss:.2f}"],
-                one_paragraph_thesis=f"{symbol} S1 sweep-reclaim confirmed at key liquidity pool with positive volume absorption.",
+                one_paragraph_thesis=(
+                    f"{symbol} S1 sweep-reclaim confirmed at key liquidity pool with orthogonal edge confluence "
+                    f"(Score: {score_breakdown.total_score}/100, Net R:R: {candidate.net_rr:.2f})."
+                ),
             )
 
             # Persist and Publish
+            # Telegram failure must NOT record success in cooldown or journal as published!
+            await self.publisher.publish(signal_obj)
+            self.governor.record_signal_published(
+                symbol=symbol,
+                direction=candidate.direction.value,
+                strategy=candidate.strategy_id,
+            )
             await self.signal_journal.log_signal(signal_obj)
             self.outcome_resolver.track_signal(signal_obj)
-            await self.publisher.publish(signal_obj)
+            logger.info(f"Signal {sig_id} successfully published and tracked.")
 
         except Exception as e:
             logger.error(f"Error processing candle for {symbol}: {e}", exc_info=True)
@@ -368,35 +499,43 @@ class NeoWilderApplication:
                 await self._health_task
             except asyncio.CancelledError:
                 pass
+        if self._derivatives_task:
+            self._derivatives_task.cancel()
+            try:
+                await self._derivatives_task
+            except asyncio.CancelledError:
+                pass
         if self.ws_client:
             await self.ws_client.stop()
         await self.binance_rest.close()
         await self.coindcx_client.close()
         await self.publisher.close()
         await self.store.stop()
-        logger.info("NEO-WILDER V4 shutdown complete.")
+        logger.info("Shutdown complete.")
+
+
+def handle_signals(app: NeoWilderApplication, loop: asyncio.AbstractEventLoop):
+    """Register graceful OS signal handlers."""
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(sig, lambda: asyncio.create_task(app.stop()))
+        except NotImplementedError:
+            # Signal handling on Windows
+            pass
 
 
 async def main():
-    mode_str = os.getenv("NEO_WILDER_MODE", "SIGNAL").upper()
+    mode_str = os.getenv("EXECUTION_MODE", "SIGNAL").upper()
     mode = ExecutionMode.SHADOW if mode_str == "SHADOW" else ExecutionMode.SIGNAL
-
     app = NeoWilderApplication(mode=mode)
 
     loop = asyncio.get_running_loop()
-    for sig_name in ("SIGINT", "SIGTERM"):
-        if hasattr(signal, sig_name):
-            try:
-                loop.add_signal_handler(
-                    getattr(signal, sig_name), lambda: asyncio.create_task(app.stop())
-                )
-            except (NotImplementedError, RuntimeError):
-                pass
+    handle_signals(app, loop)
 
+    await app.start()
     try:
-        await app.start()
-        # Keep running until shutdown event is set
-        await app._shutdown_event.wait()
+        while not app._shutdown_event.is_set():
+            await asyncio.sleep(1.0)
     finally:
         await app.stop()
 

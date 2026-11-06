@@ -5,7 +5,7 @@ Tracks account exposure, cooldowns, and daily/weekly drawdown limits.
 
 import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Set
+from typing import Dict, List, Optional, Set
 
 
 @dataclass
@@ -15,6 +15,7 @@ class AccountGovernorState:
     open_positions: List[Dict] = field(default_factory=list)
     active_symbols: Set[str] = field(default_factory=set)
     symbol_last_signal_time: Dict[str, float] = field(default_factory=dict)
+    duplicate_signal_times: Dict[str, float] = field(default_factory=dict)
     day_start_equity: float = 10000.0
     current_equity: float = 10000.0
     week_start_equity: float = 10000.0
@@ -44,17 +45,40 @@ class PortfolioGovernor:
 
     def is_symbol_locked(self, symbol: str) -> bool:
         """Check V-H25: symbol cooldown lock."""
-        last_time = self.state.symbol_last_signal_time.get(symbol, 0.0)
+        if symbol not in self.state.symbol_last_signal_time:
+            return False
+        last_time = self.state.symbol_last_signal_time[symbol]
         return (time.monotonic() - last_time) < self.cooldown_sec
 
     def is_duplicate_signal(self, symbol: str, direction: str, strategy: str) -> bool:
         """Check V-H24: duplicate signal within 30 min."""
-        # Symbol lock covers identical symbol within 30 min
-        return self.is_symbol_locked(symbol)
+        key = f"{symbol}:{direction}:{strategy}"
+        if key not in self.state.duplicate_signal_times:
+            return False
+        last_time = self.state.duplicate_signal_times[key]
+        return (time.monotonic() - last_time) < self.cooldown_sec
 
-    def record_signal_published(self, symbol: str):
-        """Update cooldown timestamp."""
-        self.state.symbol_last_signal_time[symbol] = time.monotonic()
+    def record_signal_published(
+        self,
+        symbol: str,
+        direction: Optional[str] = None,
+        strategy: Optional[str] = None,
+        risk_pct: float = 1.0,
+    ):
+        """Update cooldown timestamp and duplicate signal tracker."""
+        now = time.monotonic()
+        self.state.symbol_last_signal_time[symbol] = now
+        if direction and strategy:
+            key = f"{symbol}:{direction}:{strategy}"
+            self.state.duplicate_signal_times[key] = now
+
+    @property
+    def total_open_risk_pct(self) -> float:
+        """Sum of open risk percentages across active positions."""
+        total = 0.0
+        for pos in self.state.open_positions:
+            total += float(pos.get("risk_pct", 1.0))
+        return total
 
     @property
     def concurrent_count(self) -> int:

@@ -31,11 +31,9 @@ class FundingEngine:
         delta_ms = snapshot.next_funding_time_ms - now_ms
         minutes_to_settlement = delta_ms / 60000.0
 
-        # Funding window: -15 min before settlement to +5 min after settlement
-        # Notice after settlement, delta_ms is negative, e.g. -1 min to -5 min
-        is_window_active = (-5.0 <= -minutes_to_settlement <= 15.0) or (
-            0.0 <= minutes_to_settlement <= 15.0
-        )
+        # Funding window: -15 min before settlement (minutes_to_settlement <= 15.0)
+        # to +5 min after settlement (minutes_to_settlement >= -5.0)
+        is_window_active = -5.0 <= minutes_to_settlement <= 15.0
 
         is_toxic = abs(funding) > 0.0005  # > 0.05%
 
