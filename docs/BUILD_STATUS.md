@@ -13,7 +13,7 @@
 | **Phase 0** | Master Source Audit & Document Reconciliation | **COMPLETE** | 10 Audit Deliverables Generated; Approved |
 | **Phase 1** | Repository Foundation & Frozen Contracts | **COMPLETE** | Config, Enums, Models, Schema & Tests Pass (5/5) |
 | **Phase 2** | Data Plane & Integrity Engine | **COMPLETE** | Store (WAL), Integrity (V-H01..04), REST, WS & Tests Pass (4/4) |
-| **Phase 3** | Feature Engine (Pure transforms, no look-ahead) | **PENDING** | Future-Bar Shuffle Test & 1e-9 Parity |
+| **Phase 3** | Feature Engine (Pure transforms, no look-ahead) | **COMPLETE** | ATR, Swings, Liquidity, Structure, VP, Funding, CVD, OBI, Regime & Tests Pass (8/8) |
 | **Phase 4** | Pure Edge Modules (32 Edges) | **PENDING** | Pos/Neg/Abstain Unit Tests for all Edges |
 | **Phase 5** | Strategy & Regime Engine (S1 Long, S2/S3 Shadow)| **PENDING** | Historical Replay (0.5–6 signals/day) |
 | **Phase 6** | Hard/Soft Veto Framework (34 Hard + 15 Soft) | **PENDING** | 34 Hard + 15 Soft Veto Tests Pass |
