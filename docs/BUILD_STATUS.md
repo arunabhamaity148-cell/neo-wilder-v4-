@@ -18,8 +18,8 @@
 | **Phase 5** | Strategy & Regime Engine (S1 Long, S2/S3 Shadow)| **COMPLETE** | S1 Long Spine, Fail-Closed Short Abstain, S2 Shadow & Tests Pass (4/4) |
 | **Phase 6** | Hard/Soft Veto Framework (34 Hard + 15 Soft) | **COMPLETE** | 34 Hard + 15 Soft Vetoes, Fail-Closed Engine, Governors & Tests Pass (6/6) |
 | **Phase 7** | Scoring & Calibration Engine (Caps, Isotonic) | **COMPLETE** | C1-C6 Caps, C1+C2<=24 Limit, Isotonic Calibrator & Tests Pass (5/5) |
-| **Phase 8** | Publish, Journal & Observability (Telegram, DB) | **PENDING** | Schema Serialization & SQLite WAL |
-| **Phase 9** | CoinDCX Public Validation & Friction Engine | **PENDING** | Drift Gate & 0.1354% GST Fee Model |
+| **Phase 8** | Publish, Journal & Observability (Telegram, DB) | **COMPLETE** | Telegram Alert, /fill Parser, Outcomes, Health, Watchdog & Tests Pass (5/5) |
+| **Phase 9** | CoinDCX Public Validation & Friction Engine | **IN PROGRESS** | Drift Gate & 0.1354% GST Fee Model |
 | **Phase 10**| Backtest & Ablation Framework | **PENDING** | 12-Month Walk-Forward & Ablation Table |
 | **Phase 11**| Chaos, Replay & Resource Stress Testing | **PENDING** | RSS < 220 MB Target, Hard Cap 300 MB |
 | **Phase 12**| Shadow-Mode Implementation & Readiness | **PENDING** | Shadow Journal Logging Verified |

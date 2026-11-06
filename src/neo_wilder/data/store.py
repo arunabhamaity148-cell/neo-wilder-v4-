@@ -192,6 +192,26 @@ class DatabaseStore:
             )
         )
 
+    async def record_outcome(
+        self,
+        signal_id: str,
+        resolved_status: str,
+        exit_price: Optional[float],
+        realized_r: Optional[float],
+        resolution_time_utc: str,
+    ):
+        """Queue signal resolution outcome write."""
+        await self._write_queue.put(
+            (
+                """
+                INSERT OR REPLACE INTO outcomes (
+                    signal_id, resolved_status, exit_price, realized_r, resolution_time_utc
+                ) VALUES (?, ?, ?, ?, ?);
+                """,
+                (signal_id, resolved_status, exit_price, realized_r, resolution_time_utc),
+            )
+        )
+
     async def record_health(
         self, timestamp_ms: int, rss_mb: float, skew_ms: float, loop_lag_ms: float
     ):
