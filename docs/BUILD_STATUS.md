@@ -25,14 +25,15 @@
 | **Phase 12**| Shadow-Mode Implementation & Readiness | **COMPLETE** | Isolated Shadow Tables, 0 Egress Invariant, 8-Week Soak Gate & Tests Pass (2/2) |
 | **Phase 13**| Manual Paper-Validation Implementation | **COMPLETE** | /fill Database Integration, 5 Empirical Gates, Honest 'PENDING' Status & Tests Pass (4/4) |
 | **Phase 14**| Deployment Package & Documentation | **COMPLETE** | systemd Unit, Ops Guide, Master Entrypoint, Final Reports & Tests Pass (3/3) |
+| **Addendum**| Extreme Market Risk Guard (Bidirectional) | **COMPLETE** | 6 Risk Conditions, Fail-Closed Precedence, Wilder RSI Divergence & Tests Pass (10/10) |
 
 ---
 
 ## 2. Test Execution & Quality Gate Summary
 
-- **Unit Tests:** 60 executed, 60 passed (100%)
-- **Integration Tests:** 4 executed, 4 passed (100%)
-- **Total Test Suite:** 64 passed, 0 failed
+- **Unit Tests:** 67 executed, 67 passed (100%)
+- **Integration Tests:** 7 executed, 7 passed (100%)
+- **Total Test Suite:** 74 passed, 0 failed (100%)
 - **Lint / Style Checks:** 100% CLEAN (Ruff)
 - **Security & Forbidden Code Scan:** CLEAN (Permanent SIGNAL_ONLY, zero execution modules, zero private API keys)
 - **Memory RSS Profile:** Verified $< 150\text{ MB} \ll 220\text{ MB}$ target under 100,000 tick stress test

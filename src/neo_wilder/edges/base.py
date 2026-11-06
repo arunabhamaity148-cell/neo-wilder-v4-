@@ -5,13 +5,14 @@ Pure functions: no I/O, no network, deterministic replay.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Deque, List, Optional
+from typing import Deque, Dict, List, Optional
 
 from neo_wilder.domain.models import (
     AggTrade,
     Candle,
     EdgeResult,
     LiquidityPool,
+    OISnapshot,
     OrderBookSnapshot,
     SwingPivot,
 )
@@ -44,6 +45,11 @@ class FeatureContext:
     trades: Optional[List[AggTrade] | Deque[AggTrade]] = None
     orderbook: Optional[OrderBookSnapshot] = None
     btc_5m_return: float = 0.0
+    spot_cvd_result: Optional[CVDResult] = None
+    oi_snapshot: Optional[OISnapshot] = None
+    oi_history: List[OISnapshot] = field(default_factory=list)
+    rsi_result: Optional[object] = None  # RSIResult
+    liquidation_events: List[Dict] = field(default_factory=list)
 
 
 class BaseEdge(ABC):

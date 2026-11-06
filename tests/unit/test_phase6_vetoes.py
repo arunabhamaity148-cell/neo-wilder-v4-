@@ -2,7 +2,7 @@
 
 from neo_wilder.clock import SystemClock
 from neo_wilder.domain.enums import Direction, RegimeState
-from neo_wilder.domain.models import Candidate, Candle, CoinDCXQuote
+from neo_wilder.domain.models import Candidate, Candle, CoinDCXQuote, OISnapshot
 from neo_wilder.edges.base import FeatureContext
 from neo_wilder.features.atr import ATRResult
 from neo_wilder.features.funding import FundingContextResult
@@ -58,6 +58,11 @@ def _build_valid_candidate_and_context():
         is_toxic_funding=False,
     )
 
+    oi_snaps = [
+        OISnapshot("BTCUSDT", candles[-2].close_time_ms, 10000.0, 700_000_000.0),
+        OISnapshot("BTCUSDT", candles[-1].close_time_ms, 10005.0, 700_350_000.0),
+    ]
+
     ctx = FeatureContext(
         symbol="BTCUSDT",
         timeframe="15m",
@@ -65,6 +70,8 @@ def _build_valid_candidate_and_context():
         candles=candles,
         atr_result=atr_res,
         funding_context=funding_res,
+        oi_snapshot=oi_snaps[-1],
+        oi_history=oi_snaps,
     )
 
     quote = CoinDCXQuote(
@@ -204,6 +211,8 @@ def test_soft_veto_escalation_btc_crash():
         candles=ctx.candles,
         atr_result=ctx.atr_result,
         funding_context=ctx.funding_context,
+        oi_snapshot=ctx.oi_snapshot,
+        oi_history=ctx.oi_history,
         btc_5m_return=-0.012,
     )
 

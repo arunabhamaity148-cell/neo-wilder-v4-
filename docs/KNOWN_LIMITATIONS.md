@@ -67,5 +67,20 @@ Per the Phase 0 Master Source Audit and autonomous execution authorization, NEO-
 
 ---
 
-## 5. Summary of Compliance
-All limitations documented above represent **deliberate, research-faithful risk controls**. The system guarantees zero fabricated numbers, zero unverified endpoints, and zero unproven strategy formulas in production.
+## 5. Dedicated Extreme Market Risk Guard (Bidirectional) Protocols
+
+### 5.1 Protective Safety Scope
+- **Nature:** The `ExtremeMarketRiskGuard` is strictly a defensive risk interception layer, **NOT** a trading strategy. It cannot generate candidates, modify price targets, or override any hard veto.
+- **Fail-Closed Missing Data:** If any critical derivatives feed is offline or unavailable (e.g., missing Open Interest, missing funding context, or orderbook data stale > 3.0 seconds), the risk guard immediately raises a fail-closed hard block (`V-H11` / `V-H06`) resulting in candidate `ABSTAIN`.
+- **Bidirectional Danger Evaluation:**
+  - **LONG Candidates:** Evaluated against positive funding crowding ($> +0.05\%$), perp-led rallies with spot exhaustion/divergence, bid liquidity voids ($\text{OBI} < -0.60$), and overbought bearish RSI divergence.
+  - **SHORT Candidates:** Evaluated against negative funding crowding ($< -0.05\%$), perp-led selloffs without spot confirmation, ask liquidity voids ($\text{OBI} > +0.60$), and oversold bullish RSI divergence. Even if hypothetical short candidate generation is tested in sandbox environments, production S1 SHORT generation remains completely disabled fail-closed per Section 2.1.
+- **Edge Registry Status Preservation:**
+  - `E13` (Liquidation Bursts), `E15` (Perp CVD Slope), `E16` (OBI Imbalance), `E17` (Microstructure Volatility), and `E21` (OI Acceleration) strictly maintain **SHADOW** status (contributing zero active points).
+  - `E14` (Liquidation Cluster Proximity) and `E22` (Spot/Perp CVD Ratio) strictly maintain **EXPERIMENTAL** status (contributing zero active points).
+  - Active scoring is restricted to source-verified active edges (`E01`–`E04`, `E11`–`E12`, `E23`, `E24`).
+
+---
+
+## 6. Summary of Compliance
+All limitations documented above represent **deliberate, research-faithful risk controls**. The system guarantees zero fabricated numbers, zero unverified endpoints, zero execution keys, and zero unproven strategy formulas in production.

@@ -13,6 +13,7 @@ from neo_wilder.domain.models import Candidate, CoinDCXQuote, VetoResult
 from neo_wilder.edges.base import FeatureContext
 from neo_wilder.vetoes.governor import PortfolioGovernor
 from neo_wilder.vetoes.hard import HardVetoEvaluator
+from neo_wilder.vetoes.risk_guard import ExtremeMarketRiskGuard
 from neo_wilder.vetoes.soft import SoftVetoEvaluator, SoftVetoResult
 
 logger = logging.getLogger(__name__)
@@ -21,8 +22,13 @@ logger = logging.getLogger(__name__)
 class VetoPipeline:
     """Master pipeline executing hard and soft vetoes in strict sequence."""
 
-    def __init__(self, governor: Optional[PortfolioGovernor] = None):
+    def __init__(
+        self,
+        governor: Optional[PortfolioGovernor] = None,
+        risk_guard: Optional[ExtremeMarketRiskGuard] = None,
+    ):
         self.governor = governor or PortfolioGovernor()
+        self.risk_guard = risk_guard or ExtremeMarketRiskGuard()
 
     def evaluate_candidate(
         self,
@@ -60,7 +66,24 @@ class VetoPipeline:
         if not hard_res.passed:
             return False, hard_res, SoftVetoResult()
 
-        # 2. Evaluate Soft Vetoes
+        # 2. Evaluate Dedicated Extreme Market Risk Guard
+        risk_eval = self.risk_guard.evaluate_candidate(
+            candidate=candidate,
+            ctx=ctx,
+            quote=quote,
+        )
+
+        if not risk_eval.is_safe or risk_eval.hard_veto_triggered:
+            risk_hard = VetoResult(
+                passed=False,
+                blocking_id=risk_eval.blocking_veto_id or "V-H33_RISK_GUARD",
+                reason_code=risk_eval.blocking_reason or "EXTREME_MARKET_RISK_TRIGGERED",
+                severity=VetoSeverity.HIGH.value,
+                details="; ".join(risk_eval.details),
+            )
+            return False, risk_hard, SoftVetoResult()
+
+        # 3. Evaluate Soft Vetoes
         soft_res = SoftVetoEvaluator.evaluate(
             candidate=candidate,
             ctx=ctx,
@@ -69,7 +92,7 @@ class VetoPipeline:
             publish_threshold=publish_threshold,
         )
 
-        # 3. Check for Soft Veto escalation to Hard Veto
+        # 4. Check for Soft Veto escalation to Hard Veto
         if soft_res.escalated_to_hard:
             escalated_hard = VetoResult(
                 passed=False,
