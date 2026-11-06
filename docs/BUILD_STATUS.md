@@ -20,8 +20,8 @@
 | **Phase 7** | Scoring & Calibration Engine (Caps, Isotonic) | **COMPLETE** | C1-C6 Caps, C1+C2<=24 Limit, Isotonic Calibrator & Tests Pass (5/5) |
 | **Phase 8** | Publish, Journal & Observability (Telegram, DB) | **COMPLETE** | Telegram Alert, /fill Parser, Outcomes, Health, Watchdog & Tests Pass (5/5) |
 | **Phase 9** | CoinDCX Public Validation & Friction Engine | **COMPLETE** | Drift Gate & 0.1354% GST Fee Model & Tests Pass (5/5) |
-| **Phase 10**| Backtest & Ablation Framework | **IN PROGRESS** | 12-Month Walk-Forward & Ablation Table |
-| **Phase 11**| Chaos, Replay & Resource Stress Testing | **PENDING** | RSS < 220 MB Target, Hard Cap 300 MB |
+| **Phase 10**| Backtest & Ablation Framework | **COMPLETE** | 4-Part Cost Model, Intrabar Ambiguity SL-First, Walk-Forward, Ablation & Tests Pass (4/4) |
+| **Phase 11**| Chaos, Replay & Resource Stress Testing | **IN PROGRESS** | RSS < 220 MB Target, Hard Cap 300 MB |
 | **Phase 12**| Shadow-Mode Implementation & Readiness | **PENDING** | Shadow Journal Logging Verified |
 | **Phase 13**| Manual Paper-Validation Implementation | **PENDING** | `/fill` Parsing & Outcome Tracker |
 | **Phase 14**| Deployment Package & Documentation | **PENDING** | systemd Unit, Ops Guide, Push Report |
