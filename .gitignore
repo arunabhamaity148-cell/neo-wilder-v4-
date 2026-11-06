@@ -1,0 +1,64 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+
+# Distribution / packaging
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Testing & Linting
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+coverage.xml
+
+# Environment variables & secrets (CRITICAL)
+.env
+*.env
+!.env.example
+*.pem
+*.key
+
+# Database & Runtime data
+*.sqlite
+*.sqlite3
+*.db
+*.wal
+*.shm
+neo_wilder_journal.db*
+
+# IDE & OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Large research data
+research/data/raw/*
+!research/data/raw/.gitkeep
