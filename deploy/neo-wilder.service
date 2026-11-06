@@ -1,0 +1,50 @@
+[Unit]
+Description=NEO-WILDER V4 — Institutional Signal-Only Crypto Futures Engine
+After=network-online.target time-sync.target
+Wants=network-online.target time-sync.target
+
+[Service]
+Type=simple
+User=neowilder
+Group=neowilder
+WorkingDirectory=/opt/neo-wilder-v4
+
+# Environment and Execution
+EnvironmentFile=/etc/neo-wilder/neo-wilder.env
+ExecStart=/opt/neo-wilder-v4/.venv/bin/python -m neo_wilder.main
+
+# Process Management & Auto-Recovery
+Restart=always
+RestartSec=10s
+TimeoutStopSec=30s
+KillMode=process
+KillSignal=SIGTERM
+
+# Resource Constraints (1 GB RAM / 2 vCPU VPS Budget)
+# Target RSS <= 220 MB; Hard ceiling 300 MB; Systemd hard cap 400 MB
+MemoryHigh=350M
+MemoryMax=400M
+CPUQuota=150%
+
+# Security & Sandboxing
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/neo-wilder /var/log/neo-wilder
+ReadOnlyPaths=/opt/neo-wilder-v4
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+# File Descriptors
+LimitNOFILE=65536
+
+# Observability Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=neo-wilder
+
+[Install]
+WantedBy=multi-user.target
