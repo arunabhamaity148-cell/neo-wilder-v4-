@@ -237,3 +237,86 @@ async def test_health_monitor_and_watchdog():
     dog.beat()
     assert dog.evaluate_liveness() == DegradationLevel.NORMAL
     assert not dog.is_halted
+
+
+@pytest.mark.asyncio
+async def test_telegram_publisher_missing_credentials():
+    """Verify TelegramAlertPublisher safely returns None when credentials are unconfigured."""
+    publisher = TelegramAlertPublisher(bot_token=None, chat_id=None)
+    sig = create_sample_signal("SIG-NO-CREDS-001")
+    res = await publisher.publish(sig)
+    assert res is None
+
+
+@pytest.mark.asyncio
+async def test_telegram_publisher_mock_success():
+    """Verify TelegramAlertPublisher successfully parses message_id from Telegram response."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    publisher = TelegramAlertPublisher(bot_token="fake_token", chat_id="12345678")
+
+    mock_resp = AsyncMock()
+    mock_resp.status = 200
+    mock_resp.json = AsyncMock(return_value={"ok": True, "result": {"message_id": 776655}})
+
+    mock_post_cm = AsyncMock()
+    mock_post_cm.__aenter__.return_value = mock_resp
+    mock_post_cm.__aexit__.return_value = False
+
+    mock_session = MagicMock()
+    mock_session.post.return_value = mock_post_cm
+    mock_session.closed = False
+    publisher._session = mock_session
+
+    sig = create_sample_signal("SIG-TG-OK-001")
+    msg_id = await publisher.publish(sig)
+    assert msg_id == 776655
+
+
+@pytest.mark.asyncio
+async def test_telegram_publisher_mock_failure_retries():
+    """Verify TelegramAlertPublisher returns None after HTTP errors without unhandled exceptions."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    publisher = TelegramAlertPublisher(bot_token="fake_token", chat_id="12345678")
+
+    mock_resp = AsyncMock()
+    mock_resp.status = 500
+    mock_resp.text = AsyncMock(return_value="Internal Server Error")
+
+    mock_post_cm = AsyncMock()
+    mock_post_cm.__aenter__.return_value = mock_resp
+    mock_post_cm.__aexit__.return_value = False
+
+    mock_session = MagicMock()
+    mock_session.post.return_value = mock_post_cm
+    mock_session.closed = False
+    publisher._session = mock_session
+
+    sig = create_sample_signal("SIG-TG-FAIL-001")
+    msg_id = await publisher.publish(sig)
+    assert msg_id is None
+    assert mock_session.post.call_count == 3  # All 3 attempts executed
+
+
+def test_mode_precedence_resolution(monkeypatch):
+    """Verify mode resolution precedence: NEO_WILDER_MODE > EXECUTION_MODE > default."""
+    from neo_wilder.domain.enums import ExecutionMode
+    from neo_wilder.main import NeoWilderApplication
+
+    # 1. When NEO_WILDER_MODE=SHADOW is set
+    monkeypatch.setenv("NEO_WILDER_MODE", "SHADOW")
+    monkeypatch.delenv("EXECUTION_MODE", raising=False)
+    app1 = NeoWilderApplication()
+    assert app1.mode == ExecutionMode.SHADOW
+
+    # 2. When NEO_WILDER_MODE=SIGNAL
+    monkeypatch.setenv("NEO_WILDER_MODE", "SIGNAL")
+    app2 = NeoWilderApplication()
+    assert app2.mode == ExecutionMode.SIGNAL
+
+    # 3. When only EXECUTION_MODE=SHADOW is set
+    monkeypatch.delenv("NEO_WILDER_MODE", raising=False)
+    monkeypatch.setenv("EXECUTION_MODE", "SHADOW")
+    app3 = NeoWilderApplication()
+    assert app3.mode == ExecutionMode.SHADOW

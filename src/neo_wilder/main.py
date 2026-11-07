@@ -66,13 +66,20 @@ logger = logging.getLogger("neo_wilder")
 class NeoWilderApplication:
     """Master application coordinator."""
 
-    def __init__(self, mode: ExecutionMode = ExecutionMode.SIGNAL):
-        self.mode = mode
+    def __init__(self, mode: Optional[ExecutionMode] = None):
         self.clock = SystemClock()
 
         # Load authoritative configuration
         self.config_dir = Path("config")
         self.config = load_config(self.config_dir)
+
+        # Mode resolution precedence: 1. explicit argument, 2. env vars (NEO_WILDER_MODE / EXECUTION_MODE), 3. YAML, 4. default SIGNAL
+        if mode is not None:
+            self.mode = mode
+        else:
+            env_mode = os.getenv("NEO_WILDER_MODE") or os.getenv("EXECUTION_MODE")
+            resolved = (env_mode or self.config.mode or "SIGNAL").strip().upper()
+            self.mode = ExecutionMode.SHADOW if resolved == "SHADOW" else ExecutionMode.SIGNAL
 
         self.db_path = os.getenv("DB_PATH", self.config.system.sqlite_path)
         self.store = DatabaseStore(self.db_path)
@@ -371,8 +378,9 @@ class NeoWilderApplication:
 
             for candidate in candidates_to_process:
                 logger.info(
-                    f"Candidate setup detected on {symbol} ({candidate.strategy_id}): "
-                    f"Entry [{candidate.entry_zone_low} - {candidate.entry_zone_high}]"
+                    f"[CANDIDATE_GENERATED] Candidate setup generated: {candidate.strategy_id} on {symbol} "
+                    f"({candidate.direction.value}) | Entry Zone [{candidate.entry_zone_low:.2f} - {candidate.entry_zone_high:.2f}] | "
+                    f"SL: {candidate.stop_loss:.2f} | TP1: {candidate.tp1:.2f} | Net R:R: {candidate.net_rr:.2f}"
                 )
 
                 # 6. Fetch CoinDCX Validation Quote
@@ -395,8 +403,8 @@ class NeoWilderApplication:
                 )
 
                 if not cdcx_val.is_valid:
-                    logger.info(
-                        f"Candidate {symbol} ({candidate.strategy_id}) blocked by CoinDCX gate: "
+                    logger.warning(
+                        f"[CANDIDATE_REJECTED] {symbol} ({candidate.strategy_id}) rejected at CoinDCX execution gate: "
                         f"{cdcx_val.reason} ({cdcx_val.veto_id})"
                     )
                     if self.mode == ExecutionMode.SHADOW and self.shadow_runner is not None:
@@ -430,8 +438,8 @@ class NeoWilderApplication:
                 )
 
                 if not passed:
-                    logger.info(
-                        f"Candidate {symbol} ({candidate.strategy_id}) blocked by Veto: "
+                    logger.warning(
+                        f"[VETO_TRIGGERED] Candidate {symbol} ({candidate.strategy_id}) blocked by Veto: "
                         f"{hard_res.blocking_id} ({hard_res.reason_code})"
                     )
                     if self.mode == ExecutionMode.SHADOW and self.shadow_runner is not None:
@@ -455,7 +463,7 @@ class NeoWilderApplication:
                 threshold = self.config.scoring.publish_threshold + soft_res.threshold_increment
                 if score_breakdown.total_score < threshold:
                     logger.info(
-                        f"Candidate {symbol} ({candidate.strategy_id}) score {score_breakdown.total_score} "
+                        f"[CANDIDATE_REJECTED] Candidate {symbol} ({candidate.strategy_id}) score {score_breakdown.total_score}/100 "
                         f"below effective threshold {threshold:.1f}. Blocked."
                     )
                     if self.mode == ExecutionMode.SHADOW and self.shadow_runner is not None:
@@ -538,15 +546,30 @@ class NeoWilderApplication:
 
                 # Persist and Publish
                 # Telegram failure must NOT record success in cooldown or journal as published!
-                await self.publisher.publish(signal_obj)
-                self.governor.record_signal_published(
-                    symbol=symbol,
-                    direction=candidate.direction.value,
-                    strategy=candidate.strategy_id,
+                logger.info(
+                    f"[SIGNAL_APPROVED] Signal {sig_id} approved for {symbol} ({candidate.direction.value}) | "
+                    f"Score: {score_breakdown.total_score}/100 | Net R:R: {candidate.net_rr:.2f} | "
+                    f"Preparing Telegram transmission..."
                 )
-                await self.signal_journal.log_signal(signal_obj)
-                self.outcome_resolver.track_signal(signal_obj)
-                logger.info(f"Signal {sig_id} successfully published and tracked.")
+                logger.info(f"[PUBLICATION_ATTEMPTED] Initiating Telegram publication for signal {sig_id}...")
+                pub_result = await self.publisher.publish(signal_obj)
+
+                if pub_result:
+                    self.governor.record_signal_published(
+                        symbol=symbol,
+                        direction=candidate.direction.value,
+                        strategy=candidate.strategy_id,
+                    )
+                    await self.signal_journal.log_signal(signal_obj)
+                    self.outcome_resolver.track_signal(signal_obj)
+                    logger.info(
+                        f"[PUBLICATION_SUCCESSFUL] Signal {sig_id} published to Telegram and recorded in governor/journal."
+                    )
+                else:
+                    logger.error(
+                        f"[PUBLICATION_FAILED] Signal {sig_id} publication failed or Telegram unconfigured. "
+                        f"Cooldown lock and signal journal not committed."
+                    )
 
         except Exception as e:
             logger.error(f"Error processing candle for {symbol}: {e}", exc_info=True)
@@ -587,8 +610,14 @@ def handle_signals(app: NeoWilderApplication, loop: asyncio.AbstractEventLoop):
 
 
 async def main():
-    mode_str = os.getenv("EXECUTION_MODE", "SIGNAL").upper()
-    mode = ExecutionMode.SHADOW if mode_str == "SHADOW" else ExecutionMode.SIGNAL
+    # Precedence: 1. NEO_WILDER_MODE / EXECUTION_MODE env vars, 2. config YAML, 3. default SIGNAL
+    env_mode = os.getenv("NEO_WILDER_MODE") or os.getenv("EXECUTION_MODE")
+    cfg = load_config(Path("config"))
+    resolved_str = (env_mode or cfg.mode or "SIGNAL").strip().upper()
+    mode = ExecutionMode.SHADOW if resolved_str == "SHADOW" else ExecutionMode.SIGNAL
+    logger.info(
+        f"Master runtime mode resolved to '{mode.value}' (env: {env_mode}, yaml: {cfg.mode})"
+    )
     app = NeoWilderApplication(mode=mode)
 
     loop = asyncio.get_running_loop()

@@ -108,18 +108,45 @@ class CoinDCXPublicClient:
                     await asyncio.sleep(0.3 * (attempt + 1))
         return None
 
-    async def get_active_instruments(self) -> List[Dict[str, Any]]:
-        """Fetch active futures instruments for startup symbol mapping."""
+    async def get_active_instruments(self) -> List[Any]:
+        """Fetch active futures instruments for startup symbol mapping.
+
+        Handles both list of strings (real CoinDCX API format) and list of dicts.
+        """
         url = f"{self.api_url}/exchange/v1/derivatives/futures/data/active_instruments"
         data = await self._get_with_retry(url)
-        return data if isinstance(data, list) else []
+        if isinstance(data, list):
+            return data
+        elif isinstance(data, dict):
+            for key in ("data", "instruments", "symbols", "result"):
+                val = data.get(key)
+                if isinstance(val, list):
+                    return val
+        return []
 
     async def get_current_prices_rt(self) -> Dict[str, Dict[str, Any]]:
-        """Fetch all real-time futures prices, funding, and mark prices."""
+        """Fetch all real-time futures prices, funding, and mark prices.
+
+        Handles both live CoinDCX dictionary format {"prices": {pair: data}}
+        and legacy/mock list format [{pair: ..., ...}].
+        """
         url = f"{self.public_url}/market_data/v3/current_prices/futures/rt"
         data = await self._get_with_retry(url)
-        if isinstance(data, list):
-            return {item.get("pair", ""): item for item in data if "pair" in item}
+        if isinstance(data, dict):
+            if "prices" in data and isinstance(data["prices"], dict):
+                return data["prices"]
+            # Alternate dictionary mapping
+            sample_keys = list(data.keys())[:3]
+            if any(isinstance(k, str) and ("-" in k or "_" in k) for k in sample_keys):
+                return data
+        elif isinstance(data, list):
+            result = {}
+            for item in data:
+                if isinstance(item, dict):
+                    p = item.get("pair") or item.get("symbol")
+                    if p:
+                        result[p] = item
+            return result
         return {}
 
     async def get_orderbook_depth(self, pair: str, depth: int = 10) -> Optional[Dict[str, Any]]:
@@ -144,9 +171,16 @@ class CoinDCXPublicClient:
             return None
 
         price_data = prices_dict[pair]
-        price = float(price_data.get("price", 0.0))
-        mark_price = float(price_data.get("mp", price))
-        funding_rate = float(price_data.get("fr", 0.0))
+        # CoinDCX prices rt uses 'ls' (last sale/price), or 'price', or 'mp' (mark price)
+        price = float(
+            price_data.get("ls")
+            or price_data.get("price")
+            or price_data.get("last_price")
+            or price_data.get("mp")
+            or 0.0
+        )
+        mark_price = float(price_data.get("mp") or price_data.get("mark_price") or price)
+        funding_rate = float(price_data.get("fr") or price_data.get("funding_rate") or 0.0)
 
         if price <= 0:
             return None
@@ -156,18 +190,62 @@ class CoinDCXPublicClient:
         top10_depth_usd = 0.0
 
         if isinstance(book, dict) and "bids" in book and "asks" in book:
-            bids = book.get("bids", [])
-            asks = book.get("asks", [])
-            if bids and asks:
-                best_bid = float(bids[0].get("price", 0.0))
-                best_ask = float(asks[0].get("price", 0.0))
+            raw_bids = book.get("bids")
+            raw_asks = book.get("asks")
+
+            parsed_bids: List[tuple[float, float]] = []
+            if isinstance(raw_bids, dict):
+                # Live CoinDCX format: {"75994": "0.038", ...}
+                for p_str, q_str in raw_bids.items():
+                    try:
+                        parsed_bids.append((float(p_str), float(q_str)))
+                    except (ValueError, TypeError):
+                        continue
+                parsed_bids.sort(key=lambda x: x[0], reverse=True)
+            elif isinstance(raw_bids, list):
+                # Mock / legacy format: [{"price": 75994, "quantity": 0.038}] or [[75994, 0.038]]
+                for b in raw_bids:
+                    if isinstance(b, dict):
+                        try:
+                            parsed_bids.append((float(b.get("price", 0.0)), float(b.get("quantity", 0.0))))
+                        except (ValueError, TypeError):
+                            continue
+                    elif isinstance(b, (list, tuple)) and len(b) >= 2:
+                        try:
+                            parsed_bids.append((float(b[0]), float(b[1])))
+                        except (ValueError, TypeError):
+                            continue
+
+            parsed_asks: List[tuple[float, float]] = []
+            if isinstance(raw_asks, dict):
+                # Live CoinDCX format: {"75995": "4.856", ...}
+                for p_str, q_str in raw_asks.items():
+                    try:
+                        parsed_asks.append((float(p_str), float(q_str)))
+                    except (ValueError, TypeError):
+                        continue
+                parsed_asks.sort(key=lambda x: x[0])
+            elif isinstance(raw_asks, list):
+                # Mock / legacy format
+                for a in raw_asks:
+                    if isinstance(a, dict):
+                        try:
+                            parsed_asks.append((float(a.get("price", 0.0)), float(a.get("quantity", 0.0))))
+                        except (ValueError, TypeError):
+                            continue
+                    elif isinstance(a, (list, tuple)) and len(a) >= 2:
+                        try:
+                            parsed_asks.append((float(a[0]), float(a[1])))
+                        except (ValueError, TypeError):
+                            continue
+
+            if parsed_bids and parsed_asks:
+                best_bid = parsed_bids[0][0]
+                best_ask = parsed_asks[0][0]
                 if best_bid > 0 and best_ask >= best_bid:
                     spread_bps = ((best_ask - best_bid) / best_bid) * 10000.0
 
-                # Sum top 10 bid notional
-                for b in bids[:10]:
-                    p = float(b.get("price", 0.0))
-                    q = float(b.get("quantity", 0.0))
+                for p, q in parsed_bids[:10]:
                     top10_depth_usd += p * q
 
         return CoinDCXQuote(

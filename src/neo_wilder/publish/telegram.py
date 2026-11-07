@@ -99,9 +99,16 @@ ID: `{sig.signal_id}` | Strategy: `{sig.strategy_id}`
         message_text = self.format_signal(sig)
 
         if not self.bot_token or not self.chat_id:
-            logger.info(f"Telegram credentials not set. Alert formatted:\n{message_text}")
+            logger.warning(
+                f"Telegram credentials not configured (TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID missing). "
+                f"Alert formatted locally for {sig.signal_id} but not transmitted:\n{message_text}"
+            )
             return None
 
+        # Mask chat ID for secure observability
+        masked_chat = (
+            f"***{str(self.chat_id)[-4:]}" if len(str(self.chat_id)) > 4 else "***"
+        )
         url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
         payload = {
             "chat_id": self.chat_id,
@@ -113,22 +120,28 @@ ID: `{sig.signal_id}` | Strategy: `{sig.strategy_id}`
         session = await self._get_session()
         for attempt in range(3):
             try:
+                logger.info(
+                    f"Attempting to transmit signal {sig.signal_id} ({sig.symbol_binance} {sig.direction.value}) "
+                    f"to Telegram chat {masked_chat} (attempt {attempt + 1}/3)..."
+                )
                 async with session.post(url, json=payload) as resp:
                     if resp.status == 200:
                         data = await resp.json()
                         msg_id = data.get("result", {}).get("message_id")
                         logger.info(
-                            f"Published signal {sig.signal_id} to Telegram, message_id={msg_id}"
+                            f"Telegram transmission SUCCESS: signal {sig.signal_id} published, message_id={msg_id}"
                         )
                         return msg_id
                     else:
                         text = await resp.text()
                         logger.warning(
-                            f"Telegram HTTP {resp.status} on publish attempt {attempt + 1}: {text}"
+                            f"Telegram transmission HTTP {resp.status} on attempt {attempt + 1}/3: {text}"
                         )
             except Exception as e:
-                logger.warning(f"Telegram exception on attempt {attempt + 1}: {e}")
+                logger.warning(f"Telegram transmission network error on attempt {attempt + 1}/3: {e}")
             await asyncio.sleep(1.0 * (attempt + 1))
 
-        logger.error(f"Failed to publish signal {sig.signal_id} after 3 attempts")
+        logger.error(
+            f"Telegram transmission FAILED: signal {sig.signal_id} could not be delivered after 3 attempts."
+        )
         return None

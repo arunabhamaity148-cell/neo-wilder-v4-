@@ -205,3 +205,89 @@ async def test_coindcx_rate_limiter():
     elapsed = time.monotonic() - start
     # At 10 req/s, 5 requests with burst of 2 should take >= 0.25s
     assert elapsed >= 0.20
+
+
+@pytest.mark.asyncio
+async def test_symbol_universe_mapping_real_coindcx_string_list():
+    """Verify SymbolUniverseManager correctly handles real CoinDCX API format (list of strings).
+
+    Regression test for: 'str' object has no attribute 'get'.
+    """
+    mock_client = AsyncMock(spec=CoinDCXPublicClient)
+    # The actual CoinDCX endpoint returns a flat list of string pair identifiers
+    mock_client.get_active_instruments.return_value = [
+        "B-BTC_USDT",
+        "B-ETH_USDT",
+        "B-SOL_USDT",
+        "B-XRP_USDT",
+    ]
+
+    manager = SymbolUniverseManager(mock_client)
+    input_symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "DOGEUSDT"]
+
+    approved = await manager.initialize_universe(input_symbols)
+
+    assert approved == ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+    assert "DOGEUSDT" not in approved
+    assert manager.is_symbol_supported("BTCUSDT") is True
+    assert manager.is_symbol_supported("DOGEUSDT") is False
+    assert manager.get_coindcx_pair("BTCUSDT") == "B-BTC_USDT"
+
+
+@pytest.mark.asyncio
+async def test_symbol_universe_mapping_malformed_and_edge_cases():
+    """Verify SymbolUniverseManager handles malformed, empty, and mixed input gracefully."""
+    mock_client = AsyncMock(spec=CoinDCXPublicClient)
+    # Mixed data: strings, dicts, integers, None, inactive status
+    mock_client.get_active_instruments.return_value = [
+        "B-BTC_USDT",
+        {"pair": "B-ETH_USDT", "status": "active"},
+        {"pair": "B-SOL_USDT", "status": "suspended"},  # suspended -> must be ignored
+        {"pair": "B-ADA_USDT", "status": "trading"},   # trading -> active
+        None,
+        12345,
+        "   ",  # whitespace string
+    ]
+
+    manager = SymbolUniverseManager(mock_client)
+    input_symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "ADAUSDT"]
+
+    approved = await manager.initialize_universe(input_symbols)
+
+    assert "BTCUSDT" in approved
+    assert "ETHUSDT" in approved
+    assert "ADAUSDT" in approved
+    assert "SOLUSDT" not in approved  # Suspended pair dropped
+
+
+@pytest.mark.asyncio
+async def test_coindcx_get_validation_quote_live_dictionary_format():
+    """Verify CoinDCXPublicClient parses live CoinDCX prices rt and orderbook dict structures."""
+    client = CoinDCXPublicClient()
+
+    # Mock real CoinDCX endpoint returns:
+    # 1. prices rt returns {"prices": {"B-BTC_USDT": {"ls": 76000.0, "mp": 75995.0, "fr": 0.0001}}}
+    # 2. orderbook returns {"bids": {"75990.0": "2.0", "75980.0": "3.0"}, "asks": {"76010.0": "1.5"}}
+    client.get_current_prices_rt = AsyncMock(  # type: ignore[method-assign]
+        return_value={
+            "B-BTC_USDT": {"ls": 76000.0, "mp": 75995.0, "fr": 0.0001}
+        }
+    )
+    client.get_orderbook_depth = AsyncMock(  # type: ignore[method-assign]
+        return_value={
+            "bids": {"75990.0": "2.0", "75980.0": "3.0"},
+            "asks": {"76010.0": "1.5"},
+        }
+    )
+
+    quote = await client.get_validation_quote("B-BTC_USDT", now_ms=1700000000000)
+
+    assert quote is not None
+    assert quote.pair == "B-BTC_USDT"
+    assert quote.price == 76000.0
+    assert quote.mark_price == 75995.0
+    assert quote.funding_rate == 0.0001
+    # best_bid=75990, best_ask=76010 -> spread = (20 / 75990) * 10000 bps ~ 2.63 bps
+    assert quote.spread_bps == pytest.approx(2.6319, rel=1e-2)
+    # top 10 depth = 75990*2 + 75980*3 = 151980 + 227940 = 379920.0 USD
+    assert quote.top10_depth_usd == pytest.approx(379920.0, rel=1e-2)

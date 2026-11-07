@@ -54,10 +54,19 @@ class SymbolUniverseManager:
 
         # Build set of active CoinDCX pairs
         for inst in raw_instruments:
-            # CoinDCX active_instruments returns dicts with 'pair' or 'symbol'
-            pair_name = inst.get("pair") or inst.get("symbol")
-            status = inst.get("status", "active").lower()
-            if pair_name and status in ("active", "trading"):
+            pair_name: Optional[str] = None
+            if isinstance(inst, str):
+                # Real CoinDCX API format: list of string pair identifiers
+                pair_name = inst.strip()
+            elif isinstance(inst, dict):
+                # Dict format: test mocks or alternate endpoints with status field
+                cand_name = inst.get("pair") or inst.get("symbol") or inst.get("instrument")
+                if isinstance(cand_name, str):
+                    status = str(inst.get("status", "active")).strip().lower()
+                    if status in ("active", "trading", "1", "true"):
+                        pair_name = cand_name.strip()
+
+            if pair_name:
                 self._active_coindcx_pairs.add(pair_name)
 
         valid_binance_symbols = []

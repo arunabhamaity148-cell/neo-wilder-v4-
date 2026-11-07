@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 from neo_wilder.data.store import DatabaseStore
-from neo_wilder.domain.enums import Direction
+from neo_wilder.domain.enums import Direction, RegimeState
 from neo_wilder.domain.models import Candle
 from neo_wilder.publish.schema import Signal
 
@@ -48,17 +48,27 @@ class OutcomeResolver:
                         if r.get("direction", "LONG").upper() == "LONG"
                         else Direction.SHORT
                     )
+                    regime_val = r.get("regime", "NEUTRAL")
+                    try:
+                        regime_enum = RegimeState(regime_val)
+                    except ValueError:
+                        regime_enum = RegimeState.NEUTRAL
+
                     signal_obj = Signal(
                         signal_id=sig_id,
-                        created_at_utc=r.get("created_at_utc", ""),
-                        expires_at_utc=r.get("expires_at_utc", ""),
-                        symbol_binance=r.get("symbol_binance", ""),
-                        symbol_coindcx=r.get("symbol_coindcx", ""),
+                        created_at_utc=str(r.get("created_at_utc", "")),
+                        expires_at_utc=str(r.get("expires_at_utc", "")),
+                        symbol_binance=str(r.get("symbol_binance", "")),
+                        symbol_coindcx=str(r.get("symbol_coindcx", "")),
                         direction=dir_enum,
-                        strategy_id=r.get("strategy_id", "S1_SWEEP_RECLAIM"),
-                        active_edge_ids=r.get("active_edge_ids", "").split(","),
+                        strategy_id=str(r.get("strategy_id", "S1_SWEEP_RECLAIM")),
+                        active_edge_ids=(
+                            str(r.get("active_edge_ids", "")).split(",")
+                            if r.get("active_edge_ids")
+                            else []
+                        ),
                         confirming_edge_ids=(
-                            r.get("confirming_edge_ids", "").split(",")
+                            str(r.get("confirming_edge_ids", "")).split(",")
                             if r.get("confirming_edge_ids")
                             else []
                         ),
@@ -72,25 +82,27 @@ class OutcomeResolver:
                         tp1=float(r.get("tp1", 0.0)),
                         tp2=float(r["tp2"]) if r.get("tp2") is not None else None,
                         gross_rr=float(r.get("gross_rr", 0.0)),
-                        net_rr=float(r.get("net_rr", 0.0)),
-                        composite_score=int(r.get("composite_score", 0)),
-                        calibrated_probability=r.get("calibrated_probability"),
-                        risk_tier=r.get("risk_tier", "NORMAL"),
-                        regime=r.get("regime", "NEUTRAL"),
-                        friction_round_trip_pct=float(r.get("friction_round_trip_pct", 0.1354)),
-                        intended_clip_usd=float(r.get("intended_clip_usd", 500.0)),
-                        effective_leverage=float(r.get("effective_leverage", 1.0)),
+                        fee_pct=float(r.get("fee_pct", 0.118)),
+                        slippage_pct=float(r.get("slippage_pct", 0.0174)),
                         funding_pct_est=float(r.get("funding_pct_est", 0.0)),
-                        btc_context=r.get("btc_context", "NEUTRAL"),
-                        veto_status=r.get("veto_status", "CLEARED"),
+                        net_rr=float(r.get("net_rr", 0.0)),
+                        score_0_100=int(r.get("score_0_100") or r.get("composite_score", 0)),
+                        calibrated_probability=str(r.get("calibrated_probability") or "NOT CALIBRATED"),
+                        regime=regime_enum,
+                        btc_context=str(r.get("btc_context", "NEUTRAL")),
+                        veto_status=str(r.get("veto_status", "CLEARED")),
                         soft_veto_list=(
-                            r.get("soft_veto_list", "").split(",")
+                            str(r.get("soft_veto_list", "")).split(",")
                             if r.get("soft_veto_list")
                             else []
                         ),
                         max_entry_drift_pct=float(r.get("max_entry_drift_pct", 0.35)),
-                        invalidation_conditions=[r.get("invalidation_conditions", "")],
-                        one_paragraph_thesis=r.get("one_paragraph_thesis", ""),
+                        invalidation_conditions=(
+                            [str(r.get("invalidation_conditions"))]
+                            if r.get("invalidation_conditions")
+                            else []
+                        ),
+                        one_paragraph_thesis=str(r.get("one_paragraph_thesis", "")),
                     )
                     self.track_signal(signal_obj)
                     loaded += 1
